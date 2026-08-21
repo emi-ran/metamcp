@@ -31,6 +31,10 @@ function normalizeMcpServerData<T extends Partial<McpServerCreateInput>>(
     }
   }
 
+  if (normalized.type === "STDIO" && normalized.url !== undefined) {
+    normalized.url = null;
+  }
+
   return normalized;
 }
 

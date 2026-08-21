@@ -113,6 +113,7 @@ describe("McpServersRepository command normalization for PostgreSQL check constr
         name: "test-stdio",
         type: "STDIO",
         command: "npx -y @modelcontextprotocol/server-memory",
+        url: "",
         args: ["arg1"],
         env: { FOO: "BAR" },
         headers: {},
@@ -123,6 +124,7 @@ describe("McpServersRepository command normalization for PostgreSQL check constr
 
       expect(insertValuesCalls).toHaveLength(1);
       expect(insertValuesCalls[0].command).toBe("npx -y @modelcontextprotocol/server-memory");
+      expect(insertValuesCalls[0].url).toBeNull();
     });
   });
 
@@ -165,6 +167,7 @@ describe("McpServersRepository command normalization for PostgreSQL check constr
         name: "test-stdio-update",
         type: "STDIO",
         command: "node server.js",
+        url: "",
         forward_headers: {},
       };
 
@@ -172,6 +175,7 @@ describe("McpServersRepository command normalization for PostgreSQL check constr
 
       expect(updateSetCalls).toHaveLength(1);
       expect(updateSetCalls[0].command).toBe("node server.js");
+      expect(updateSetCalls[0].url).toBeNull();
     });
   });
 
