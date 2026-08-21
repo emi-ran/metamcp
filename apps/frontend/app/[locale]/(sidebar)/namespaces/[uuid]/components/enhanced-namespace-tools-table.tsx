@@ -25,6 +25,16 @@ import Link from "next/link";
 import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/code-block";
@@ -156,6 +166,10 @@ export function EnhancedNamespaceToolsTable({
   // Get tRPC utils for cache invalidation
   const utils = trpc.useUtils();
 
+  const [confirmBulkAction, setConfirmBulkAction] = useState<
+    "ACTIVE" | "INACTIVE" | null
+  >(null);
+
   // Use namespace-specific tool status update mutation
   const updateToolStatusMutation =
     trpc.frontend.namespaces.updateToolStatus.useMutation({
@@ -173,6 +187,35 @@ export function EnhancedNamespaceToolsTable({
       onError: (error) => {
         console.error("Error updating tool status:", error);
         toast.error(t("namespaces:enhancedToolsTable.toolStatusUpdateFailed"), {
+          description: error.message,
+        });
+      },
+    });
+
+  // Bulk status update mutation
+  const bulkUpdateToolStatusMutation =
+    trpc.frontend.namespaces.bulkUpdateToolStatus.useMutation({
+      onSuccess: (response, variables) => {
+        if (response.success) {
+          toast.success(
+            variables.status === "ACTIVE"
+              ? t("namespaces:toolManagement.bulkEnableSuccess")
+              : t("namespaces:toolManagement.bulkDisableSuccess"),
+            {
+              description: response.message,
+            },
+          );
+          // Invalidate the namespace tools query to refresh the data
+          utils.frontend.namespaces.getTools.invalidate({ namespaceUuid });
+        } else {
+          toast.error(t("namespaces:toolManagement.bulkUpdateFailed"), {
+            description: response.message,
+          });
+        }
+      },
+      onError: (error) => {
+        console.error("Error bulk updating tool status:", error);
+        toast.error(t("namespaces:toolManagement.bulkUpdateFailed"), {
           description: error.message,
         });
       },
@@ -753,21 +796,55 @@ export function EnhancedNamespaceToolsTable({
     );
   }
 
+  const savedToolsCount = savedTools.length;
+  const isBulkMutating =
+    sessionInitializing || bulkUpdateToolStatusMutation.isPending;
+
+  const handleConfirmBulk = () => {
+    if (!confirmBulkAction) return;
+    bulkUpdateToolStatusMutation.mutate({
+      namespaceUuid,
+      status: confirmBulkAction,
+    });
+    setConfirmBulkAction(null);
+  };
+
   return (
     <div className="w-full space-y-4">
-      {/* Search Bar */}
-      <div className="flex items-center gap-2 px-2 mt-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t("namespaces:enhancedToolsTable.searchTools")}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+      {/* Action and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-2 mt-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmBulkAction("ACTIVE")}
+            disabled={isBulkMutating || savedToolsCount === 0}
+            className="text-xs"
+          >
+            {t("namespaces:toolManagement.enableAll")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmBulkAction("INACTIVE")}
+            disabled={isBulkMutating || savedToolsCount === 0}
+            className="text-xs"
+          >
+            {t("namespaces:toolManagement.disableAll")}
+          </Button>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-muted-foreground">
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t("namespaces:enhancedToolsTable.searchTools")}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="text-sm text-muted-foreground whitespace-nowrap">
             {t("namespaces:enhancedToolsTable.toolsCount", {
               count: filteredAndSortedTools.length,
               total: enhancedTools.length,
@@ -781,6 +858,44 @@ export function EnhancedNamespaceToolsTable({
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog for Bulk Action */}
+      <AlertDialog
+        open={confirmBulkAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmBulkAction(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmBulkAction === "ACTIVE"
+                ? t("namespaces:toolManagement.confirmEnableAllTitle")
+                : t("namespaces:toolManagement.confirmDisableAllTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmBulkAction === "ACTIVE"
+                ? t("namespaces:toolManagement.confirmEnableAllDescription", {
+                    count: savedToolsCount,
+                  })
+                : t("namespaces:toolManagement.confirmDisableAllDescription", {
+                    count: savedToolsCount,
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkUpdateToolStatusMutation.isPending}>
+              {t("namespaces:edit.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmBulk}
+              disabled={bulkUpdateToolStatusMutation.isPending}
+            >
+              {t("namespaces:toolManagement.confirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {filteredAndSortedTools.length === 0 ? (
         <div className="p-8 text-center">

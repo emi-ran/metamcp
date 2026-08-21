@@ -187,7 +187,17 @@
     "noToolsFromMetaMCP": "MetaMCP 连接中未找到工具",
     "fetchToolsError": "从 MetaMCP 连接获取工具失败",
     "metaMCPNotAvailable": "MetaMCP 连接不可用，回退到数据库刷新",
-    "toolsAutoSaved": "工具已自动发现并保存"
+    "toolsAutoSaved": "工具已自动发现并保存",
+    "enableAll": "全部启用",
+    "disableAll": "全部禁用",
+    "confirmEnableAllTitle": "启用所有工具？",
+    "confirmEnableAllDescription": "此操作将应用于当前命名空间中映射的所有 {{count}} 个工具。所有工具将被设置为 ACTIVE。",
+    "confirmDisableAllTitle": "禁用所有工具？",
+    "confirmDisableAllDescription": "此操作将应用于当前命名空间中映射的所有 {{count}} 个工具。所有工具将被设置为 INACTIVE。",
+    "confirmAction": "确认",
+    "bulkEnableSuccess": "已启用所有命名空间工具",
+    "bulkDisableSuccess": "已禁用所有命名空间工具",
+    "bulkUpdateFailed": "更新工具状态失败"
   },
   "edit": {
     "title": "编辑命名空间",

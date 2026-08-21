@@ -197,7 +197,17 @@
     "noToolsFromMetaMCP": "No tools found in MetaMCP connection",
     "fetchToolsError": "Failed to fetch tools from MetaMCP connection",
     "metaMCPNotAvailable": "MetaMCP connection not available, falling back to database refresh",
-    "toolsAutoSaved": "Tools automatically discovered and saved"
+    "toolsAutoSaved": "Tools automatically discovered and saved",
+    "enableAll": "Enable All",
+    "disableAll": "Disable All",
+    "confirmEnableAllTitle": "Enable all tools?",
+    "confirmEnableAllDescription": "This action applies to all {{count}} tools mapped in the current namespace. All tools will be set to ACTIVE.",
+    "confirmDisableAllTitle": "Disable all tools?",
+    "confirmDisableAllDescription": "This action applies to all {{count}} tools mapped in the current namespace. All tools will be set to INACTIVE.",
+    "confirmAction": "Confirm",
+    "bulkEnableSuccess": "All namespace tools enabled",
+    "bulkDisableSuccess": "All namespace tools disabled",
+    "bulkUpdateFailed": "Failed to update tool statuses"
   },
   "edit": {
     "title": "Edit Namespace",

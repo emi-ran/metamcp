@@ -47,6 +47,21 @@ export class NamespaceMappingsRepository {
     return updatedMapping;
   }
 
+  async bulkUpdateToolStatusByNamespace(
+    namespaceUuid: string,
+    status: "ACTIVE" | "INACTIVE",
+  ) {
+    const updatedMappings = await db
+      .update(namespaceToolMappingsTable)
+      .set({
+        status,
+      })
+      .where(eq(namespaceToolMappingsTable.namespace_uuid, namespaceUuid))
+      .returning();
+
+    return updatedMappings;
+  }
+
   async updateToolOverrides(input: NamespaceToolOverridesUpdate) {
     const [updatedMapping] = await db
       .update(namespaceToolMappingsTable)

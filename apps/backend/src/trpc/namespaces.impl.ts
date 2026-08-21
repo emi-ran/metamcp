@@ -1,4 +1,6 @@
 import {
+  BulkUpdateNamespaceToolStatusRequestSchema,
+  BulkUpdateNamespaceToolStatusResponseSchema,
   CreateNamespaceRequestSchema,
   CreateNamespaceResponseSchema,
   DeleteNamespaceResponseSchema,
@@ -576,6 +578,69 @@ export const namespacesImplementations = {
       };
     } catch (error) {
       logger.error("Error updating tool status:", error);
+      return {
+        success: false as const,
+        message:
+          error instanceof Error ? error.message : "Internal server error",
+      };
+    }
+  },
+
+  bulkUpdateToolStatus: async (
+    input: z.infer<typeof BulkUpdateNamespaceToolStatusRequestSchema>,
+    userId: string,
+  ): Promise<z.infer<typeof BulkUpdateNamespaceToolStatusResponseSchema>> => {
+    try {
+      const namespace = await namespacesRepository.findByUuid(
+        input.namespaceUuid,
+      );
+
+      if (!namespace) {
+        return {
+          success: false as const,
+          message: "Namespace not found",
+        };
+      }
+
+      if (namespace.user_id && namespace.user_id !== userId) {
+        return {
+          success: false as const,
+          message:
+            "Access denied: You can only update tool status for namespaces you own",
+        };
+      }
+
+      const updatedMappings =
+        await namespaceMappingsRepository.bulkUpdateToolStatusByNamespace(
+          input.namespaceUuid,
+          input.status,
+        );
+
+      metaMcpServerPool
+        .invalidateIdleServer(input.namespaceUuid)
+        .catch((error) => {
+          logger.error(
+            `Error invalidating idle MetaMCP server for namespace ${input.namespaceUuid} after bulk tool status update:`,
+            error,
+          );
+        });
+
+      metaMcpServerPool
+        .invalidateOpenApiSessions([input.namespaceUuid])
+        .catch((error) => {
+          logger.error(
+            `Error invalidating OpenAPI session for namespace ${input.namespaceUuid} after bulk tool status update:`,
+            error,
+          );
+        });
+
+      return {
+        success: true as const,
+        message: `Updated status to ${input.status} for ${updatedMappings.length} tools`,
+        updatedCount: updatedMappings.length,
+      };
+    } catch (error) {
+      logger.error("Error bulk updating tool status:", error);
       return {
         success: false as const,
         message:

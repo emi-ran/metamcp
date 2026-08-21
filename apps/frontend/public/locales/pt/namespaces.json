@@ -197,7 +197,17 @@
     "noToolsFromMetaMCP": "Nenhuma tool encontrada na conexão MetaMCP",
     "fetchToolsError": "Falha ao buscar tools da conexão MetaMCP",
     "metaMCPNotAvailable": "Conexão MetaMCP não disponível, usando atualização do banco de dados",
-    "toolsAutoSaved": "Tools automaticamente descobertas e salvas"
+    "toolsAutoSaved": "Tools automaticamente descobertas e salvas",
+    "enableAll": "Ativar todas",
+    "disableAll": "Desativar todas",
+    "confirmEnableAllTitle": "Ativar todas as ferramentas?",
+    "confirmEnableAllDescription": "Esta ação se aplica a todas as {{count}} ferramentas mapeadas no namespace atual. Todas as ferramentas serão definidas como ACTIVE.",
+    "confirmDisableAllTitle": "Desativar todas as ferramentas?",
+    "confirmDisableAllDescription": "Esta ação se aplica a todas as {{count}} ferramentas mapeadas no namespace atual. Todas as ferramentas serão definidas como INACTIVE.",
+    "confirmAction": "Confirmar",
+    "bulkEnableSuccess": "Todas as ferramentas do namespace ativadas",
+    "bulkDisableSuccess": "Todas as ferramentas do namespace desativadas",
+    "bulkUpdateFailed": "Falha ao atualizar os status das ferramentas"
   },
   "edit": {
     "title": "Editar Namespace",

@@ -1,4 +1,6 @@
 import {
+  BulkUpdateNamespaceToolStatusRequestSchema,
+  BulkUpdateNamespaceToolStatusResponseSchema,
   CreateNamespaceRequestSchema,
   CreateNamespaceResponseSchema,
   DeleteNamespaceResponseSchema,
@@ -61,6 +63,10 @@ export const createNamespacesRouter = (
       input: z.infer<typeof UpdateNamespaceToolStatusRequestSchema>,
       userId: string,
     ) => Promise<z.infer<typeof UpdateNamespaceToolStatusResponseSchema>>;
+    bulkUpdateToolStatus: (
+      input: z.infer<typeof BulkUpdateNamespaceToolStatusRequestSchema>,
+      userId: string,
+    ) => Promise<z.infer<typeof BulkUpdateNamespaceToolStatusResponseSchema>>;
     updateToolOverrides: (
       input: z.infer<typeof UpdateNamespaceToolOverridesRequestSchema>,
       userId: string,
@@ -133,6 +139,14 @@ export const createNamespacesRouter = (
       .output(UpdateNamespaceToolStatusResponseSchema)
       .mutation(async ({ input, ctx }) => {
         return await implementations.updateToolStatus(input, ctx.user.id);
+      }),
+
+    // Protected: Bulk update tool status within namespace
+    bulkUpdateToolStatus: protectedProcedure
+      .input(BulkUpdateNamespaceToolStatusRequestSchema)
+      .output(BulkUpdateNamespaceToolStatusResponseSchema)
+      .mutation(async ({ input, ctx }) => {
+        return await implementations.bulkUpdateToolStatus(input, ctx.user.id);
       }),
 
     // Protected: Update tool overrides within namespace

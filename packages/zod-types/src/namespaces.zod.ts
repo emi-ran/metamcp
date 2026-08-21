@@ -143,6 +143,18 @@ export const UpdateNamespaceToolStatusResponseSchema = z.object({
   message: z.string(),
 });
 
+// Bulk namespace tool status management schemas
+export const BulkUpdateNamespaceToolStatusRequestSchema = z.object({
+  namespaceUuid: z.string().uuid(),
+  status: ToolStatusEnum,
+});
+
+export const BulkUpdateNamespaceToolStatusResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  updatedCount: z.number().optional(),
+});
+
 // Namespace tool overrides management schemas
 export const UpdateNamespaceToolOverridesRequestSchema = z.object({
   namespaceUuid: z.string().uuid(),
@@ -223,6 +235,12 @@ export type UpdateNamespaceToolStatusRequest = z.infer<
 >;
 export type UpdateNamespaceToolStatusResponse = z.infer<
   typeof UpdateNamespaceToolStatusResponseSchema
+>;
+export type BulkUpdateNamespaceToolStatusRequest = z.infer<
+  typeof BulkUpdateNamespaceToolStatusRequestSchema
+>;
+export type BulkUpdateNamespaceToolStatusResponse = z.infer<
+  typeof BulkUpdateNamespaceToolStatusResponseSchema
 >;
 export type UpdateNamespaceToolOverridesRequest = z.infer<
   typeof UpdateNamespaceToolOverridesRequestSchema
