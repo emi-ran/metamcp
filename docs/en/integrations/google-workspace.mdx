@@ -32,13 +32,12 @@ MetaMCP provides built-in Google Workspace integration with least-privilege OAut
 ### 1.3 Create OAuth 2.0 Web Client Credentials
 1. Go to **APIs & Services** > **Credentials**.
 2. Click **Create Credentials** > **OAuth client ID**.
-3. Set **Application type** to **Web application**.
+3. Set **Application type** to **Web application** (never Desktop/localhost client).
 4. Set **Name** (e.g., `MetaMCP Google Integration`).
 5. Under **Authorized redirect URIs**, enter your public callback URL:
    ```text
    https://<your-metamcp-domain>/integrations/google/callback
    ```
-   *(For local development: `http://localhost:12008/integrations/google/callback`)*
 6. Click **Create** and copy the generated **Client ID** and **Client Secret**.
 
 ## 2. Environment Variables & Token Encryption
@@ -47,7 +46,7 @@ Configure the following environment variables in your `.env` or deployment envir
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `APP_URL` | Yes | Public base URL of your MetaMCP instance (e.g. `https://mcp.example.com` or `http://localhost:12008`). Used to build the public OAuth callback URI. |
+| `APP_URL` | Yes | Public base URL of your MetaMCP instance (e.g. `https://mcp.example.com`). Used to build the public OAuth callback URI. |
 | `GOOGLE_CLIENT_ID` | Yes | OAuth 2.0 Web Client ID from Google Cloud Console. |
 | `GOOGLE_CLIENT_SECRET` | Yes | OAuth 2.0 Web Client Secret from Google Cloud Console. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Conditional | 32-byte string or 64-character hex string for AES-256-GCM token encryption. Used when versioned map is not configured. |
@@ -68,42 +67,45 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123
 
 ## 3. Exact Minimum Scopes Table
 
-MetaMCP enforces least-privilege scoping. Read tools work with read-only scopes. Write and delete operations require explicit re-consent.
+MetaMCP enforces least-privilege scoping:
+- **Default Connect**: Requests only the base scopes: `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/gmail.readonly`.
+- **Read-Only Scopes for Calendar/Drive/Docs/Sheets**: Not included in the default initial connect. Users must explicitly select them via **Reconnect / Update Permissions**.
+- **Write / Destructive Scopes**: Require explicit selection and trigger forced Google re-consent (`prompt=consent`).
 
-| Service | Tool Name | Tool Type | Required OAuth Scope | Re-Consent Required |
+| Service | Tool Name | Tool Type | Required OAuth Scope | Re-Consent / Explicit Selection Required |
 | --- | --- | --- | --- | --- |
-| **Gmail** | `gmail_search` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
-| **Gmail** | `gmail_get_message` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
-| **Gmail** | `gmail_get_thread` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
-| **Gmail** | `gmail_list_labels` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
-| **Gmail** | `gmail_download_attachment` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
-| **Calendar** | `calendar_list_calendars` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
-| **Calendar** | `calendar_list_events` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
-| **Calendar** | `calendar_get_event` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
-| **Calendar** | `calendar_freebusy` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
-| **Calendar** | `calendar_create_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes |
-| **Calendar** | `calendar_update_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes |
-| **Calendar** | `calendar_delete_event` | Write / Destructive | `https://www.googleapis.com/auth/calendar.events` | Yes |
-| **Drive** | `drive_search` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
-| **Drive** | `drive_get_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
-| **Drive** | `drive_list_folder` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
-| **Drive** | `drive_download_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
-| **Drive** | `drive_upload_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
-| **Drive** | `drive_create_folder` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
-| **Drive** | `drive_share_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
-| **Drive** | `drive_delete_file` | Write / Destructive | `https://www.googleapis.com/auth/drive.file` | Yes |
-| **Docs** | `docs_get` | Read | `https://www.googleapis.com/auth/documents.readonly` | No |
-| **Docs** | `docs_create` | Write | `https://www.googleapis.com/auth/documents` | Yes |
-| **Docs** | `docs_append` | Write | `https://www.googleapis.com/auth/documents` | Yes |
-| **Docs** | `docs_replace_text` | Write | `https://www.googleapis.com/auth/documents` | Yes |
-| **Sheets** | `sheets_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | No |
-| **Sheets** | `sheets_batch_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | No |
-| **Sheets** | `sheets_update` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
-| **Sheets** | `sheets_append` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
-| **Sheets** | `sheets_create` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
+| **Gmail** | `gmail_search` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Gmail** | `gmail_get_message` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Gmail** | `gmail_get_thread` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Gmail** | `gmail_list_labels` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Gmail** | `gmail_download_attachment` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Calendar** | `calendar_list_calendars` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
+| **Calendar** | `calendar_list_events` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
+| **Calendar** | `calendar_get_event` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
+| **Calendar** | `calendar_freebusy` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
+| **Calendar** | `calendar_create_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes (Forced re-consent via Reconnect) |
+| **Calendar** | `calendar_update_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes (Forced re-consent via Reconnect) |
+| **Calendar** | `calendar_delete_event` | Write / Destructive | `https://www.googleapis.com/auth/calendar.events` | Yes (Forced re-consent via Reconnect) |
+| **Drive** | `drive_search` | Read | `https://www.googleapis.com/auth/drive.readonly` | Yes (Explicit selection via Reconnect) |
+| **Drive** | `drive_get_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | Yes (Explicit selection via Reconnect) |
+| **Drive** | `drive_list_folder` | Read | `https://www.googleapis.com/auth/drive.readonly` | Yes (Explicit selection via Reconnect) |
+| **Drive** | `drive_download_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | Yes (Explicit selection via Reconnect) |
+| **Drive** | `drive_upload_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes (Forced re-consent via Reconnect) |
+| **Drive** | `drive_create_folder` | Write | `https://www.googleapis.com/auth/drive.file` | Yes (Forced re-consent via Reconnect) |
+| **Drive** | `drive_share_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes (Forced re-consent via Reconnect) |
+| **Drive** | `drive_delete_file` | Write / Destructive | `https://www.googleapis.com/auth/drive.file` | Yes (Forced re-consent via Reconnect) |
+| **Docs** | `docs_get` | Read | `https://www.googleapis.com/auth/documents.readonly` | Yes (Explicit selection via Reconnect) |
+| **Docs** | `docs_create` | Write | `https://www.googleapis.com/auth/documents` | Yes (Forced re-consent via Reconnect) |
+| **Docs** | `docs_append` | Write | `https://www.googleapis.com/auth/documents` | Yes (Forced re-consent via Reconnect) |
+| **Docs** | `docs_replace_text` | Write | `https://www.googleapis.com/auth/documents` | Yes (Forced re-consent via Reconnect) |
+| **Sheets** | `sheets_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | Yes (Explicit selection via Reconnect) |
+| **Sheets** | `sheets_batch_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | Yes (Explicit selection via Reconnect) |
+| **Sheets** | `sheets_update` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes (Forced re-consent via Reconnect) |
+| **Sheets** | `sheets_append` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes (Forced re-consent via Reconnect) |
+| **Sheets** | `sheets_create` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes (Forced re-consent via Reconnect) |
 
 <Info>
-Default base scopes for initial connect: `openid`, `email`, `profile`, `gmail.readonly`.
+Default base scopes for initial connect: `openid`, `email`, `profile`, `https://www.googleapis.com/auth/gmail.readonly`. All Calendar, Drive, Docs, and Sheets scopes (both read-only and write) require explicit selection via reconnect. Write scopes additionally enforce Google re-consent.
 </Info>
 
 ## 4. Namespace Security & Default Inactive Tools
@@ -120,8 +122,8 @@ To protect against unintentional tool exposure:
 ChatGPT Custom Actions and remote MCP connections require OAuth authentication:
 1. In MetaMCP, navigate to **Endpoints** and select or create an endpoint pointing to your Google Workspace namespace.
 2. In endpoint settings, ensure:
-   - **API Key Auth**: Disabled (or OAuth enabled).
-   - **OAuth Auth**: **Enabled**.
+   - **API Key Auth**: Disabled AND
+   - **OAuth Auth**: Enabled
 3. Copy the endpoint URL:
    ```text
    https://<your-metamcp-domain>/metamcp/<endpoint-name>/mcp
@@ -175,7 +177,7 @@ Use `mcp-remote` for local stdio clients to complete the browser OAuth handshake
 ## 6. Disconnect & Revoke
 
 Users can revoke access at any time:
-1. Navigate to **Settings** > **Google Workspace** in the MetaMCP UI.
+1. Navigate to **Settings** > **Integrations** tab > **Google Workspace** in the MetaMCP UI.
 2. Click **Disconnect Google Workspace**.
 3. **Execution details**:
    - MetaMCP calls `https://oauth2.googleapis.com/revoke` to revoke upstream refresh and access tokens.

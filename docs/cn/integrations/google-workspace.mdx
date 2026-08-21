@@ -30,15 +30,14 @@ MetaMCP 提供了内置的 Google Workspace 集成，采用最小权限的 OAuth
 4. 在 **Scopes（范围）** 步骤中添加所需的基础权限范围。
 
 ### 1.3 创建 OAuth 2.0 Web 客户端凭据
-1. 进入 **APIs & Services** > **Credentials（凭据）**。
+1. 进入 **APIs & Services（API 和服务）** > **Credentials（凭据）**。
 2. 点击 **Create Credentials（创建凭据）** > **OAuth client ID（OAuth 客户端 ID）**。
-3. 选择 **Application type（应用类型）** 为 **Web application（Web 应用）**。
+3. 选择 **Application type（应用类型）** 为 **Web application（Web 应用）**（切勿使用桌面端或 localhost 回调客户端）。
 4. 设置名称（例如 `MetaMCP Google Integration`）。
 5. 在 **Authorized redirect URIs（已授权的重定向 URI）** 中，填入公开回调地址：
    ```text
    https://<your-metamcp-domain>/integrations/google/callback
    ```
-   *(本地开发环境为：`http://localhost:12008/integrations/google/callback`)*
 6. 点击 **Create** 并复制生成的 **Client ID** 与 **Client Secret**。
 
 ## 2. 环境变量与令牌加密配置
@@ -47,7 +46,7 @@ MetaMCP 提供了内置的 Google Workspace 集成，采用最小权限的 OAuth
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `APP_URL` | 是 | MetaMCP 实例的公开访问基础 URL（例如 `https://mcp.example.com` 或 `http://localhost:12008`），用于生成公共 OAuth 回调 URI。 |
+| `APP_URL` | 是 | MetaMCP 实例的公开访问基础 URL（例如 `https://mcp.example.com`），用于生成公共 OAuth 回调 URI。 |
 | `GOOGLE_CLIENT_ID` | 是 | 从 Google Cloud Console 获取的 Web OAuth Client ID。 |
 | `GOOGLE_CLIENT_SECRET` | 是 | 从 Google Cloud Console 获取的 Web OAuth Client Secret。 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | 条件必填 | 32 字节字符串或 64 字符十六进制字符串，用于 AES-256-GCM 令牌加密存储。 |
@@ -68,52 +67,61 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123
 
 ## 3. 最小权限范围对照表
 
-MetaMCP 严格遵循最小权限原则。读取工具仅需只读范围；写入与删除等修改操作需要用户在前端界面进行显式再次授权。
+MetaMCP 严格遵循最小权限原则：
+- **默认初始连接**：仅申请基础权限范围：`openid`、`email`、`profile` 以及 `https://www.googleapis.com/auth/gmail.readonly`。
+- **日历/云端硬盘/文档/表格的只读权限**：未包含在默认初始连接中。用户必须通过**重新连接 / 更新权限**显式勾选并授权。
+- **写入 / 破坏性权限**：必须显式勾选，且会触发强制 Google 重新同意流程（`prompt=consent`）。
 
-| 服务 | 工具名称 | 工具类型 | 所需 OAuth 范围 | 是否需再次确认授权 |
+| 服务 | 工具名称 | 工具类型 | 所需 OAuth 范围 | 是否需再次确认 / 显式选择授权 |
 | --- | --- | --- | --- | --- |
-| **Gmail** | `gmail_search` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否 |
-| **Gmail** | `gmail_get_message` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否 |
-| **Gmail** | `gmail_get_thread` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否 |
-| **Gmail** | `gmail_list_labels` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否 |
-| **Gmail** | `gmail_download_attachment` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否 |
-| **Calendar** | `calendar_list_calendars` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 否 |
-| **Calendar** | `calendar_list_events` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 否 |
-| **Calendar** | `calendar_get_event` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 否 |
-| **Calendar** | `calendar_freebusy` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 否 |
-| **Calendar** | `calendar_create_event` | 写 | `https://www.googleapis.com/auth/calendar.events` | 是 |
-| **Calendar** | `calendar_update_event` | 写 | `https://www.googleapis.com/auth/calendar.events` | 是 |
-| **Calendar** | `calendar_delete_event` | 写 / 破坏性 | `https://www.googleapis.com/auth/calendar.events` | 是 |
-| **Drive** | `drive_search` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 否 |
-| **Drive** | `drive_get_file` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 否 |
-| **Drive** | `drive_list_folder` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 否 |
-| **Drive** | `drive_download_file` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 否 |
-| **Drive** | `drive_upload_file` | 写 | `https://www.googleapis.com/auth/drive.file` | 是 |
-| **Drive** | `drive_create_folder` | 写 | `https://www.googleapis.com/auth/drive.file` | 是 |
-| **Drive** | `drive_share_file` | 写 | `https://www.googleapis.com/auth/drive.file` | 是 |
-| **Drive** | `drive_delete_file` | 写 / 破坏性 | `https://www.googleapis.com/auth/drive.file` | 是 |
-| **Docs** | `docs_get` | 读 | `https://www.googleapis.com/auth/documents.readonly` | 否 |
-| **Docs** | `docs_create` | 写 | `https://www.googleapis.com/auth/documents` | 是 |
-| **Docs** | `docs_append` | 写 | `https://www.googleapis.com/auth/documents` | 是 |
-| **Docs** | `docs_replace_text` | 写 | `https://www.googleapis.com/auth/documents` | 是 |
-| **Sheets** | `sheets_get` | 读 | `https://www.googleapis.com/auth/spreadsheets.readonly` | 否 |
-| **Sheets** | `sheets_batch_get` | 读 | `https://www.googleapis.com/auth/spreadsheets.readonly` | 否 |
-| **Sheets** | `sheets_update` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是 |
-| **Sheets** | `sheets_append` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是 |
-| **Sheets** | `sheets_create` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是 |
+| **Gmail** | `gmail_search` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Gmail** | `gmail_get_message` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Gmail** | `gmail_get_thread` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Gmail** | `gmail_list_labels` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Gmail** | `gmail_download_attachment` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Calendar** | `calendar_list_calendars` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
+| **Calendar** | `calendar_list_events` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
+| **Calendar** | `calendar_get_event` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
+| **Calendar** | `calendar_freebusy` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
+| **Calendar** | `calendar_create_event` | 写 | `https://www.googleapis.com/auth/calendar.events` | 是（需通过“重新连接”强制重新同意） |
+| **Calendar** | `calendar_update_event` | 写 | `https://www.googleapis.com/auth/calendar.events` | 是（需通过“重新连接”强制重新同意） |
+| **Calendar** | `calendar_delete_event` | 写 / 破坏性 | `https://www.googleapis.com/auth/calendar.events` | 是（需通过“重新连接”强制重新同意） |
+| **Drive** | `drive_search` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 是（需通过“重新连接”显式选择） |
+| **Drive** | `drive_get_file` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 是（需通过“重新连接”显式选择） |
+| **Drive** | `drive_list_folder` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 是（需通过“重新连接”显式选择） |
+| **Drive** | `drive_download_file` | 读 | `https://www.googleapis.com/auth/drive.readonly` | 是（需通过“重新连接”显式选择） |
+| **Drive** | `drive_upload_file` | 写 | `https://www.googleapis.com/auth/drive.file` | 是（需通过“重新连接”强制重新同意） |
+| **Drive** | `drive_create_folder` | 写 | `https://www.googleapis.com/auth/drive.file` | 是（需通过“重新连接”强制重新同意） |
+| **Drive** | `drive_share_file` | 写 | `https://www.googleapis.com/auth/drive.file` | 是（需通过“重新连接”强制重新同意） |
+| **Drive** | `drive_delete_file` | 写 / 破坏性 | `https://www.googleapis.com/auth/drive.file` | 是（需通过“重新连接”强制重新同意） |
+| **Docs** | `docs_get` | 读 | `https://www.googleapis.com/auth/documents.readonly` | 是（需通过“重新连接”显式选择） |
+| **Docs** | `docs_create` | 写 | `https://www.googleapis.com/auth/documents` | 是（需通过“重新连接”强制重新同意） |
+| **Docs** | `docs_append` | 写 | `https://www.googleapis.com/auth/documents` | 是（需通过“重新连接”强制重新同意） |
+| **Docs** | `docs_replace_text` | 写 | `https://www.googleapis.com/auth/documents` | 是（需通过“重新连接”强制重新同意） |
+| **Sheets** | `sheets_get` | 读 | `https://www.googleapis.com/auth/spreadsheets.readonly` | 是（需通过“重新连接”显式选择） |
+| **Sheets** | `sheets_batch_get` | 读 | `https://www.googleapis.com/auth/spreadsheets.readonly` | 是（需通过“重新连接”显式选择） |
+| **Sheets** | `sheets_update` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是（需通过“重新连接”强制重新同意） |
+| **Sheets** | `sheets_append` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是（需通过“重新连接”强制重新同意） |
+| **Sheets** | `sheets_create` | 写 | `https://www.googleapis.com/auth/spreadsheets` | 是（需通过“重新连接”强制重新同意） |
+
+<Info>
+默认初始连接基础权限：`openid`、`email`、`profile`、`https://www.googleapis.com/auth/gmail.readonly`。所有日历、云端硬盘、文档和表格权限（包括只读与写入）都需要通过“重新连接”显式选择；写入权限会额外执行 Google 强制重新同意。
+</Info>
 
 ## 4. 命名空间安全与默认非激活机制
 
 - **默认非激活（Default Inactive）**：`GoogleWorkspace` 提供的所有工具在加入命名空间时默认为 **`INACTIVE`** 状态。
 - **逐项启用**：必须在命名空间工具列表中手动开启所需的工具。
 - **前缀隔离**：所有 Google Workspace 工具均带有命名空间前缀 `GoogleWorkspace__<tool_name>`（例如 `GoogleWorkspace__gmail_search`）。
-- **用户作用域执行**：工具执行时基于当前调用用户的 Google 连接令牌运行；未连接用户将收到 `GoogleWorkspaceError("NOT_CONNECTED")`。
+- **用户作用域执行**：工具执行时基于当前调用用户的 Google 连接令牌运行；未连接用户将收到 `GoogleWorkspaceError("NOT_CONNECTED")`.
 
 ## 5. 客户端连接指南
 
 ### 方式 A：ChatGPT（纯 OAuth 远程 MCP）
 1. 在 MetaMCP 中导航至 **Endpoints（端点）**，找到指向 Google Workspace 命名空间的端点。
-2. 确保端点设置中 **OAuth Auth** 处于启用状态。
+2. 确保端点设置中：
+   - **API Key Auth**：禁用（Disabled）且
+   - **OAuth Auth**：启用（Enabled）
 3. 复制端点 URL：
    ```text
    https://<your-metamcp-domain>/metamcp/<endpoint-name>/mcp
@@ -163,7 +171,7 @@ MetaMCP 严格遵循最小权限原则。读取工具仅需只读范围；写入
 ## 6. 断开连接与撤销授权
 
 用户可随时断开并撤销 Google 连接：
-1. 打开 MetaMCP 界面中的 **Settings** > **Google Workspace**。
+1. 打开 MetaMCP 界面中的 **Settings（设置）** > **Integrations（集成）** 标签页 > **Google Workspace** 卡片。
 2. 点击 **Disconnect Google Workspace**。
 3. **处理流程**：
    - MetaMCP 向 `https://oauth2.googleapis.com/revoke` 发送请求撤销 Google 端令牌。
