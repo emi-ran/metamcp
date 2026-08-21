@@ -76,6 +76,7 @@
   "googleWorkspaceSelectScopes": "Seleccionar permisos (Menor privilegio)",
   "googleWorkspaceSelectScopesDescription": "Seleccione solo los permisos requeridos. Las operaciones de escritura requieren consentimiento explícito.",
   "googleWorkspaceScopeGmailRead": "Gmail (Solo lectura)",
+  "googleWorkspaceScopeGmailModify": "Organización de Gmail (Etiquetas/Papelera/Spam)",
   "googleWorkspaceScopeCalendarRead": "Google Calendar (Solo lectura)",
   "googleWorkspaceScopeCalendarEvents": "Google Calendar Eventos (Crear/Modificar/Eliminar)",
   "googleWorkspaceScopeDriveRead": "Google Drive (Solo lectura)",

@@ -76,6 +76,7 @@
   "googleWorkspaceSelectScopes": "권한 선택 (최소 권한)",
   "googleWorkspaceSelectScopesDescription": "필요한 권한만 선택하세요. 쓰기 작업에는 명시적 재동의가 필요합니다.",
   "googleWorkspaceScopeGmailRead": "Gmail (읽기 전용)",
+  "googleWorkspaceScopeGmailModify": "Gmail 정리 (라벨/휴지통/스팸)",
   "googleWorkspaceScopeCalendarRead": "Google 캘린더 (읽기 전용)",
   "googleWorkspaceScopeCalendarEvents": "Google 캘린더 일정 (생성/수정/삭제)",
   "googleWorkspaceScopeDriveRead": "Google 드라이브 (읽기 전용)",

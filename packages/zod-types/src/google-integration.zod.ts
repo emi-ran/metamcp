@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const GoogleWorkspaceScopeEnum = z.enum([
   "gmail.readonly",
+  "gmail.modify",
   "calendar.readonly",
   "calendar.events",
   "drive.readonly",

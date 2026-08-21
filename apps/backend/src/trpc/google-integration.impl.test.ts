@@ -186,12 +186,13 @@ describe("googleIntegrationImplementations", () => {
     it("generates url requesting explicit least-privilege scopes with forced consent", async () => {
       const res = await googleIntegrationImplementations.reconnect(
         {
-          workspaceScopes: ["calendar.readonly", "drive.file"],
+          workspaceScopes: ["gmail.modify", "calendar.readonly", "drive.file"],
         },
         "user-1",
       );
       expect(res.url).toContain("https://accounts.google.com/o/oauth2/v2/auth");
       expect(res.url).toContain("prompt=consent+select_account");
+      expect(res.url).toContain("gmail.modify");
       expect(res.url).toContain("calendar.readonly");
       expect(res.url).toContain("drive.file");
     });

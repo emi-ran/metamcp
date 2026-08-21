@@ -76,6 +76,7 @@
   "googleWorkspaceSelectScopes": "Select Scopes (Least-Privilege)",
   "googleWorkspaceSelectScopesDescription": "Select only the scopes required for your workflows. Write operations will require explicit re-consent.",
   "googleWorkspaceScopeGmailRead": "Gmail (Read-only)",
+  "googleWorkspaceScopeGmailModify": "Gmail Organization (Labels/Trash/Spam)",
   "googleWorkspaceScopeCalendarRead": "Google Calendar (Read-only)",
   "googleWorkspaceScopeCalendarEvents": "Google Calendar Events (Create/Update/Delete)",
   "googleWorkspaceScopeDriveRead": "Google Drive (Read-only)",
