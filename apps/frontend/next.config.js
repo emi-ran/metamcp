@@ -18,6 +18,10 @@ const nextConfig = {
         source: "/oauth/:path*",
         destination: `${backendUrl}/oauth/:path*`,
       },
+      {
+        source: "/integrations/google/:path*",
+        destination: `${backendUrl}/integrations/google/:path*`,
+      },
       // Well-known endpoints - proxy all well-known paths
       {
         source: "/.well-known/:path*",

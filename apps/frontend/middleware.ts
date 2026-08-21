@@ -60,6 +60,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/mcp-proxy") ||
     pathname.startsWith("/metamcp") ||
     pathname.startsWith("/oauth") ||
+    pathname.startsWith("/integrations/google") ||
     pathname.startsWith("/.well-known") ||
     pathname.startsWith("/service") ||
     pathname.startsWith("/health") ||
@@ -137,6 +138,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Skip all internal paths (_next, etc.)
-    "/((?!_next|api/|trpc|mcp-proxy|metamcp|oauth|fe-oauth|\\.well-known|service|health|.*\\..*).*)",
+    "/((?!_next|api/|trpc|mcp-proxy|metamcp|oauth|integrations/google|fe-oauth|\\.well-known|service|health|.*\\..*).*)",
   ],
 };
