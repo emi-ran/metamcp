@@ -14,14 +14,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { GoogleWorkspaceIntegrationCard } from "@/components/google-workspace-integration-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTranslations } from "@/hooks/useTranslations";
 import { trpc } from "@/lib/trpc";
 
 export default function SettingsPage() {
   const { t } = useTranslations();
+
   const [isSignupDisabled, setIsSignupDisabled] = useState(false);
   const [isSsoSignupDisabled, setIsSsoSignupDisabled] = useState(false);
   const [isBasicAuthDisabled, setIsBasicAuthDisabled] = useState(false);
@@ -426,262 +429,276 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">{t("settings:description")}</p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("settings:authSettings")}</CardTitle>
-            <CardDescription>
-              {t("settings:authSettingsDescription")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="disable-signup" className="text-base">
-                  {t("settings:disableSignup")}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings:disableSignupDescription")}
-                </p>
-              </div>
-              <Switch
-                id="disable-signup"
-                checked={isSignupDisabled}
-                onCheckedChange={handleSignupToggle}
-                disabled={setSignupDisabledMutation.isPending}
-              />
-            </div>
+      <Tabs defaultValue="general" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="general">{t("settings:generalSettings")}</TabsTrigger>
+          <TabsTrigger value="integrations">{t("settings:integrations")}</TabsTrigger>
+        </TabsList>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="disable-sso-signup" className="text-base">
-                  {t("settings:disableSsoSignup")}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings:disableSsoSignupDescription")}
-                </p>
-              </div>
-              <Switch
-                id="disable-sso-signup"
-                checked={isSsoSignupDisabled}
-                onCheckedChange={handleSsoSignupToggle}
-                disabled={setSsoSignupDisabledMutation.isPending}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="disable-basic-auth" className="text-base">
-                  {t("settings:disableBasicAuth")}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings:disableBasicAuthDescription")}
-                </p>
-              </div>
-              <Switch
-                id="disable-basic-auth"
-                checked={isBasicAuthDisabled}
-                onCheckedChange={handleBasicAuthToggle}
-                disabled={setBasicAuthDisabledMutation.isPending}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("settings:mcpSettings")}</CardTitle>
-            <CardDescription>
-              {t("settings:mcpSettingsDescription")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="mcp-reset-timeout" className="text-base">
-                  {t("settings:mcpResetTimeoutOnProgress")}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings:mcpResetTimeoutOnProgressDescription")}
-                </p>
-              </div>
-              <Switch
-                id="mcp-reset-timeout"
-                checked={mcpResetTimeoutOnProgress}
-                onCheckedChange={handleMcpResetTimeoutToggle}
-                disabled={setMcpResetTimeoutOnProgressMutation.isPending}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="mcp-timeout" className="text-base">
-                {t("settings:mcpTimeout")}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t("settings:mcpTimeoutDescription")}
-              </p>
-              <div className="flex items-center space-x-2">
-                <Controller
-                  name="mcpTimeout"
-                  control={form.control}
-                  render={({ field }) => (
-                    <Input
-                      {...field}
-                      id="mcp-timeout"
-                      type="number"
-                      min="1000"
-                      max="86400000"
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value, 10);
-                        field.onChange(isNaN(value) ? 1000 : value);
-                      }}
-                      className="w-32"
-                    />
-                  )}
-                />
-                <span className="text-sm text-muted-foreground">ms</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="mcp-max-total-timeout" className="text-base">
-                {t("settings:mcpMaxTotalTimeout")}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t("settings:mcpMaxTotalTimeoutDescription")}
-              </p>
-              <div className="flex items-center space-x-2">
-                <Controller
-                  name="mcpMaxTotalTimeout"
-                  control={form.control}
-                  render={({ field }) => (
-                    <Input
-                      {...field}
-                      id="mcp-max-total-timeout"
-                      type="number"
-                      min="1000"
-                      max="86400000"
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value, 10);
-                        field.onChange(isNaN(value) ? 1000 : value);
-                      }}
-                      className="w-32"
-                    />
-                  )}
-                />
-                <span className="text-sm text-muted-foreground">ms</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="mcp-max-attempts" className="text-base">
-                {t("settings:mcpMaxAttempts")}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t("settings:mcpMaxAttemptsDescription")}
-              </p>
-              <div className="flex items-center space-x-2">
-                <Controller
-                  name="mcpMaxAttempts"
-                  control={form.control}
-                  render={({ field }) => (
-                    <Input
-                      {...field}
-                      id="mcp-max-attempts"
-                      type="number"
-                      min="1"
-                      max="10"
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value, 10);
-                        field.onChange(isNaN(value) ? 1 : value);
-                      }}
-                      className="w-32"
-                    />
-                  )}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {t("settings:attempts")}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label
-                    htmlFor="enable-session-lifetime"
-                    className="text-base"
-                  >
-                    {t("settings:enableSessionLifetime")}
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    {t("settings:enableSessionLifetimeDescription")}
-                  </p>
+        <TabsContent value="general">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("settings:authSettings")}</CardTitle>
+                <CardDescription>
+                  {t("settings:authSettingsDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="disable-signup" className="text-base">
+                      {t("settings:disableSignup")}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings:disableSignupDescription")}
+                    </p>
+                  </div>
+                  <Switch
+                    id="disable-signup"
+                    checked={isSignupDisabled}
+                    onCheckedChange={handleSignupToggle}
+                    disabled={setSignupDisabledMutation.isPending}
+                  />
                 </div>
-                <Switch
-                  id="enable-session-lifetime"
-                  checked={isSessionLifetimeEnabled}
-                  onCheckedChange={handleSessionLifetimeToggle}
-                />
-              </div>
 
-              {isSessionLifetimeEnabled && (
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="disable-sso-signup" className="text-base">
+                      {t("settings:disableSsoSignup")}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings:disableSsoSignupDescription")}
+                    </p>
+                  </div>
+                  <Switch
+                    id="disable-sso-signup"
+                    checked={isSsoSignupDisabled}
+                    onCheckedChange={handleSsoSignupToggle}
+                    disabled={setSsoSignupDisabledMutation.isPending}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="disable-basic-auth" className="text-base">
+                      {t("settings:disableBasicAuth")}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings:disableBasicAuthDescription")}
+                    </p>
+                  </div>
+                  <Switch
+                    id="disable-basic-auth"
+                    checked={isBasicAuthDisabled}
+                    onCheckedChange={handleBasicAuthToggle}
+                    disabled={setBasicAuthDisabledMutation.isPending}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("settings:mcpSettings")}</CardTitle>
+                <CardDescription>
+                  {t("settings:mcpSettingsDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="mcp-reset-timeout" className="text-base">
+                      {t("settings:mcpResetTimeoutOnProgress")}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings:mcpResetTimeoutOnProgressDescription")}
+                    </p>
+                  </div>
+                  <Switch
+                    id="mcp-reset-timeout"
+                    checked={mcpResetTimeoutOnProgress}
+                    onCheckedChange={handleMcpResetTimeoutToggle}
+                    disabled={setMcpResetTimeoutOnProgressMutation.isPending}
+                  />
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="session-lifetime" className="text-base">
-                    {t("settings:sessionLifetime")}
+                  <Label htmlFor="mcp-timeout" className="text-base">
+                    {t("settings:mcpTimeout")}
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    {t("settings:sessionLifetimeDescription")}
+                    {t("settings:mcpTimeoutDescription")}
                   </p>
                   <div className="flex items-center space-x-2">
                     <Controller
-                      name="sessionLifetime"
+                      name="mcpTimeout"
                       control={form.control}
                       render={({ field }) => (
                         <Input
                           {...field}
-                          id="session-lifetime"
+                          id="mcp-timeout"
                           type="number"
-                          min="5"
-                          max="1440"
-                          value={field.value || 240}
+                          min="1000"
+                          max="86400000"
                           onChange={(e) => {
                             const value = parseInt(e.target.value, 10);
-                            field.onChange(isNaN(value) ? 240 : value);
+                            field.onChange(isNaN(value) ? 1000 : value);
+                          }}
+                          className="w-32"
+                        />
+                      )}
+                    />
+                    <span className="text-sm text-muted-foreground">ms</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-max-total-timeout" className="text-base">
+                    {t("settings:mcpMaxTotalTimeout")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings:mcpMaxTotalTimeoutDescription")}
+                  </p>
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="mcpMaxTotalTimeout"
+                      control={form.control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          id="mcp-max-total-timeout"
+                          type="number"
+                          min="1000"
+                          max="86400000"
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            field.onChange(isNaN(value) ? 1000 : value);
+                          }}
+                          className="w-32"
+                        />
+                      )}
+                    />
+                    <span className="text-sm text-muted-foreground">ms</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-max-attempts" className="text-base">
+                    {t("settings:mcpMaxAttempts")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings:mcpMaxAttemptsDescription")}
+                  </p>
+                  <div className="flex items-center space-x-2">
+                    <Controller
+                      name="mcpMaxAttempts"
+                      control={form.control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          id="mcp-max-attempts"
+                          type="number"
+                          min="1"
+                          max="10"
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            field.onChange(isNaN(value) ? 1 : value);
                           }}
                           className="w-32"
                         />
                       )}
                     />
                     <span className="text-sm text-muted-foreground">
-                      minutes
+                      {t("settings:attempts")}
                     </span>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Apply Changes Button - only show when there are unsaved changes */}
-            {hasUnsavedChanges && (
-              <div className="flex items-center justify-between pt-4 border-t">
-                <div className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
-                  {t("settings:unsavedChangesTitle")}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label
+                        htmlFor="enable-session-lifetime"
+                        className="text-base"
+                      >
+                        {t("settings:enableSessionLifetime")}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {t("settings:enableSessionLifetimeDescription")}
+                      </p>
+                    </div>
+                    <Switch
+                      id="enable-session-lifetime"
+                      checked={isSessionLifetimeEnabled}
+                      onCheckedChange={handleSessionLifetimeToggle}
+                    />
+                  </div>
+
+                  {isSessionLifetimeEnabled && (
+                    <div className="space-y-2">
+                      <Label htmlFor="session-lifetime" className="text-base">
+                        {t("settings:sessionLifetime")}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {t("settings:sessionLifetimeDescription")}
+                      </p>
+                      <div className="flex items-center space-x-2">
+                        <Controller
+                          name="sessionLifetime"
+                          control={form.control}
+                          render={({ field }) => (
+                            <Input
+                              {...field}
+                              id="session-lifetime"
+                              type="number"
+                              min="5"
+                              max="1440"
+                              value={field.value || 240}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                field.onChange(isNaN(value) ? 240 : value);
+                              }}
+                              className="w-32"
+                            />
+                          )}
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          minutes
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="min-w-[120px]"
-                >
-                  {isSubmitting
-                    ? t("settings:loading")
-                    : t("settings:applyChanges")}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </form>
+
+                {/* Apply Changes Button - only show when there are unsaved changes */}
+                {hasUnsavedChanges && (
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                      {t("settings:unsavedChangesTitle")}
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="min-w-[120px]"
+                    >
+                      {isSubmitting
+                        ? t("settings:loading")
+                        : t("settings:applyChanges")}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </form>
+        </TabsContent>
+
+        <TabsContent value="integrations" className="space-y-6">
+          <GoogleWorkspaceIntegrationCard />
+        </TabsContent>
+      </Tabs>
     </div>
   );
+
 }

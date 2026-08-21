@@ -8,6 +8,7 @@ import { createContext } from "../trpc";
 import { apiKeysImplementations } from "../trpc/api-keys.impl";
 import { configImplementations } from "../trpc/config.impl";
 import { endpointsImplementations } from "../trpc/endpoints.impl";
+import { googleIntegrationImplementations } from "../trpc/google-integration.impl";
 import { logsImplementations } from "../trpc/logs.impl";
 import { mcpRequestAuditLogsImplementations } from "../trpc/mcp-request-audit-logs.impl";
 import { mcpServersImplementations } from "../trpc/mcp-servers.impl";
@@ -27,8 +28,10 @@ const appRouter = createAppRouter({
     config: configImplementations,
     logs: logsImplementations,
     mcpRequestAuditLogs: mcpRequestAuditLogsImplementations,
+    googleIntegration: googleIntegrationImplementations,
   },
 });
+
 
 // Export the router type for client usage
 export type AppRouter = typeof appRouter;

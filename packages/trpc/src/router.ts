@@ -17,9 +17,11 @@ export const createAppRouter = (implementations: {
       config: frontendRouters.config,
       logs: frontendRouters.logs,
       mcpRequestAuditLogs: frontendRouters.mcpRequestAuditLogs,
+      googleIntegration: frontendRouters.googleIntegration,
     }),
   });
 };
+
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
 

@@ -1,6 +1,7 @@
 import { createApiKeysRouter } from "./api-keys";
 import { createConfigRouter } from "./config";
 import { createEndpointsRouter } from "./endpoints";
+import { createGoogleIntegrationRouter } from "./google-integration";
 import { createLogsRouter } from "./logs";
 import { createMcpRequestAuditLogsRouter } from "./mcp-request-audit-logs";
 import { createMcpServersRouter } from "./mcp-servers";
@@ -16,6 +17,7 @@ export { createToolsRouter };
 export { createApiKeysRouter };
 export { createConfigRouter };
 export { createMcpRequestAuditLogsRouter };
+export { createGoogleIntegrationRouter };
 
 export const createFrontendRouter = (implementations: {
   mcpServers: Parameters<typeof createMcpServersRouter>[0];
@@ -27,6 +29,7 @@ export const createFrontendRouter = (implementations: {
   config: Parameters<typeof createConfigRouter>[0];
   logs: Parameters<typeof createLogsRouter>[0];
   mcpRequestAuditLogs: Parameters<typeof createMcpRequestAuditLogsRouter>[0];
+  googleIntegration: Parameters<typeof createGoogleIntegrationRouter>[0];
 }) => {
   return {
     mcpServers: createMcpServersRouter(implementations.mcpServers),
@@ -40,5 +43,9 @@ export const createFrontendRouter = (implementations: {
     mcpRequestAuditLogs: createMcpRequestAuditLogsRouter(
       implementations.mcpRequestAuditLogs,
     ),
+    googleIntegration: createGoogleIntegrationRouter(
+      implementations.googleIntegration,
+    ),
   };
 };
+
