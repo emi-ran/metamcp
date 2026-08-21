@@ -29,21 +29,30 @@ const DEFAULT_GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
 ] as const;
 
-// Workspace writes are deliberately unavailable from initial connect. Each key
-// maps a requested product capability to Google least-privilege OAuth scope.
-const GOOGLE_WORKSPACE_WRITE_SCOPES = {
+const GOOGLE_WORKSPACE_SCOPES = {
+  "gmail.readonly": "https://www.googleapis.com/auth/gmail.readonly",
   "calendar.readonly": "https://www.googleapis.com/auth/calendar.readonly",
   "calendar.events": "https://www.googleapis.com/auth/calendar.events",
   "drive.readonly": "https://www.googleapis.com/auth/drive.readonly",
-  "gmail.compose": "https://www.googleapis.com/auth/gmail.compose",
-  "drive.file": "https://www.googleapis.com/auth/drive",
-  "docs.readonly": "https://www.googleapis.com/auth/documents.readonly",
-  "docs.write": "https://www.googleapis.com/auth/documents",
-  "sheets.readonly": "https://www.googleapis.com/auth/spreadsheets.readonly",
-  "sheets.write": "https://www.googleapis.com/auth/spreadsheets",
+  "drive.file": "https://www.googleapis.com/auth/drive.file",
+  "documents.readonly": "https://www.googleapis.com/auth/documents.readonly",
+  documents: "https://www.googleapis.com/auth/documents",
+  "spreadsheets.readonly":
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+  spreadsheets: "https://www.googleapis.com/auth/spreadsheets",
 } as const;
 
-export type GoogleWorkspaceScope = keyof typeof GOOGLE_WORKSPACE_WRITE_SCOPES;
+export type GoogleWorkspaceScope = keyof typeof GOOGLE_WORKSPACE_SCOPES;
+export const GOOGLE_WORKSPACE_SCOPE_NAMES = Object.freeze(
+  Object.keys(GOOGLE_WORKSPACE_SCOPES) as GoogleWorkspaceScope[],
+);
+
+const GOOGLE_WORKSPACE_WRITE_SCOPE_NAMES = new Set<GoogleWorkspaceScope>([
+  "calendar.events",
+  "drive.file",
+  "documents",
+  "spreadsheets",
+]);
 
 export function buildGoogleAuthUrl(params: {
   clientId: string;
@@ -53,15 +62,19 @@ export function buildGoogleAuthUrl(params: {
   workspaceScopes?: GoogleWorkspaceScope[];
   forcePrompt?: boolean;
 }): string {
-  if (params.workspaceScopes?.length && !params.forcePrompt) {
+  if (
+    params.workspaceScopes?.some((scope) =>
+      GOOGLE_WORKSPACE_WRITE_SCOPE_NAMES.has(scope),
+    ) &&
+    !params.forcePrompt
+  ) {
     throw new Error("Workspace write scopes require forced re-consent");
   }
-  const scopes = [
-    ...DEFAULT_GOOGLE_SCOPES,
-    ...(params.workspaceScopes?.map(
-      (scope) => GOOGLE_WORKSPACE_WRITE_SCOPES[scope],
-    ) ?? []),
-  ];
+  const selectedScopes =
+    params.workspaceScopes?.map((scope) => GOOGLE_WORKSPACE_SCOPES[scope]) ??
+    [];
+  const requestedScopes = [...DEFAULT_GOOGLE_SCOPES, ...selectedScopes];
+  const scopes = [...new Set(requestedScopes)];
 
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", params.clientId);

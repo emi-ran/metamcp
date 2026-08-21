@@ -14,6 +14,7 @@ import {
   generateOAuthState,
   generatePkcePair,
   getPublicCallbackUrl,
+  GOOGLE_WORKSPACE_SCOPE_NAMES,
   type GoogleWorkspaceScope,
   revokeGoogleToken,
 } from "./google-oauth-service";
@@ -50,15 +51,8 @@ function parseWorkspaceScopes(value: unknown): GoogleWorkspaceScope[] {
     !Array.isArray(value) ||
     value.some(
       (scope) =>
-        scope !== "calendar.readonly" &&
-        scope !== "calendar.events" &&
-        scope !== "drive.readonly" &&
-        scope !== "gmail.compose" &&
-        scope !== "drive.file" &&
-        scope !== "docs.readonly" &&
-        scope !== "docs.write" &&
-        scope !== "sheets.readonly" &&
-        scope !== "sheets.write",
+        typeof scope !== "string" ||
+        !GOOGLE_WORKSPACE_SCOPE_NAMES.includes(scope as GoogleWorkspaceScope),
     )
   ) {
     throw oauthError("Invalid requested Google workspace scopes");

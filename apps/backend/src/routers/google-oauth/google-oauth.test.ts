@@ -133,7 +133,37 @@ describe("Google OAuth Core & Routes", () => {
     );
   });
 
-  it("only adds workspace write scopes during forced re-consent", () => {
+  it("supports exact least-privilege scope selection names without escalation", () => {
+    const readAuthUrl = buildGoogleAuthUrl({
+      clientId: "my-client-id",
+      redirectUri: "http://localhost:12009/integrations/google/callback",
+      state: "test-state",
+      codeChallenge: "test-challenge",
+      workspaceScopes: [
+        "gmail.readonly",
+        "calendar.readonly",
+        "drive.readonly",
+        "documents.readonly",
+        "spreadsheets.readonly",
+      ],
+    });
+    const readScopes = new URL(readAuthUrl).searchParams
+      .get("scope")
+      ?.split(" ");
+    expect(readScopes).toEqual(
+      expect.arrayContaining([
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+      ]),
+    );
+    expect(readScopes).not.toContain("https://www.googleapis.com/auth/drive");
+    expect(readScopes).not.toContain(
+      "https://www.googleapis.com/auth/calendar",
+    );
+
     expect(() =>
       buildGoogleAuthUrl({
         clientId: "my-client-id",
@@ -149,11 +179,22 @@ describe("Google OAuth Core & Routes", () => {
       redirectUri: "http://localhost:12009/integrations/google/callback",
       state: "test-state",
       codeChallenge: "test-challenge",
-      workspaceScopes: ["calendar.events"],
+      workspaceScopes: [
+        "calendar.events",
+        "drive.file",
+        "documents",
+        "spreadsheets",
+      ],
       forcePrompt: true,
     });
     expect(new URL(authUrl).searchParams.get("scope")).toContain(
       "https://www.googleapis.com/auth/calendar.events",
+    );
+    expect(new URL(authUrl).searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/drive.file",
+    );
+    expect(new URL(authUrl).searchParams.get("scope")).not.toContain(
+      "https://www.googleapis.com/auth/drive ",
     );
   });
 
@@ -262,6 +303,60 @@ describe("Google OAuth Core & Routes", () => {
     expect(url.searchParams.get("prompt")).toContain("consent");
     expect(url.searchParams.get("scope")).toContain(
       "https://www.googleapis.com/auth/calendar.events",
+    );
+  });
+
+  it("validates reconnect scope names and accepts every contract scope", async () => {
+    const { auth } = await import("@/auth");
+    (auth.api.getSession as any).mockResolvedValue({
+      user: { id: "user-123", email: "user@test.com" },
+    });
+
+    const invalid = await fetch(`${baseUrl}/integrations/google/reconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceScopes: ["docs.write"] }),
+      redirect: "manual",
+    });
+    expect(invalid.status).toBe(400);
+
+    const valid = await fetch(
+      `${baseUrl}/integrations/google/reconnect?json=true`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceScopes: [
+            "gmail.readonly",
+            "calendar.readonly",
+            "calendar.events",
+            "drive.readonly",
+            "drive.file",
+            "documents.readonly",
+            "documents",
+            "spreadsheets.readonly",
+            "spreadsheets",
+          ],
+        }),
+      },
+    );
+    expect(valid.status).toBe(200);
+    const body = (await valid.json()) as { url: string };
+    const selectedScopes = new URL(body.url).searchParams
+      .get("scope")
+      ?.split(" ");
+    expect(selectedScopes).toEqual(
+      expect.arrayContaining([
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/spreadsheets",
+      ]),
     );
   });
 

@@ -1,30 +1,72 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  GOOGLE_WORKSPACE_DEFAULT_TOOL_STATUS,
+  GOOGLE_WORKSPACE_SERVER_NAME,
   GOOGLE_WORKSPACE_TOOLS,
-  GoogleWorkspaceClient,
-  GoogleWorkspaceError,
   type GoogleConnectionStore,
   type GoogleHttpClient,
+  GoogleWorkspaceClient,
+  GoogleWorkspaceError,
+  MAX_DRIVE_DOWNLOAD_BYTES,
+  MAX_GMAIL_ATTACHMENT_BYTES,
 } from "./google-workspace";
+
+const expectedToolNames = [
+  "gmail_search",
+  "gmail_get_message",
+  "gmail_get_thread",
+  "gmail_list_labels",
+  "gmail_download_attachment",
+  "calendar_list_calendars",
+  "calendar_list_events",
+  "calendar_get_event",
+  "calendar_freebusy",
+  "calendar_create_event",
+  "calendar_update_event",
+  "calendar_delete_event",
+  "drive_search",
+  "drive_get_file",
+  "drive_list_folder",
+  "drive_download_file",
+  "drive_upload_file",
+  "drive_create_folder",
+  "drive_share_file",
+  "drive_delete_file",
+  "docs_get",
+  "docs_create",
+  "docs_append",
+  "docs_replace_text",
+  "sheets_get",
+  "sheets_batch_get",
+  "sheets_update",
+  "sheets_append",
+  "sheets_create",
+] as const;
+
+const allScopes = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/documents.readonly",
+  "https://www.googleapis.com/auth/documents",
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
+  "https://www.googleapis.com/auth/spreadsheets",
+];
 
 const userConnection = {
   accessToken: "old-access",
   refreshToken: "refresh-token",
   expiresAt: new Date(Date.now() + 60_000),
-  scopes: [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar.events",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/spreadsheets",
-  ],
+  scopes: allScopes,
 };
 
-function fakeStore(): GoogleConnectionStore {
+function fakeStore(scopes = allScopes): GoogleConnectionStore {
   return {
     getDecryptedTokens: vi.fn(async (userId: string) =>
-      userId === "request-user" ? userConnection : null,
+      userId === "request-user" ? { ...userConnection, scopes } : null,
     ),
     upsertConnection: vi.fn(async () => undefined),
   };
@@ -34,22 +76,56 @@ function fakeHttp(responses: Response[]): GoogleHttpClient {
   return { fetch: vi.fn(async () => responses.shift() ?? new Response()) };
 }
 
+function clientWith(responses: Response[], scopes = allScopes) {
+  const http = fakeHttp(responses);
+  return {
+    http,
+    client: new GoogleWorkspaceClient({
+      connections: fakeStore(scopes),
+      http,
+      sleep: vi.fn(),
+    }),
+  };
+}
+
 describe("Google Workspace catalog", () => {
-  it("contains Gmail, Calendar, Drive, Docs, and Sheets tools", () => {
+  it("contains only contract tool names under exact GoogleWorkspace prefix", () => {
+    expect(GOOGLE_WORKSPACE_SERVER_NAME).toBe("GoogleWorkspace");
+    expect(GOOGLE_WORKSPACE_DEFAULT_TOOL_STATUS).toBe("INACTIVE");
     expect(GOOGLE_WORKSPACE_TOOLS.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining([
-        "gmail_list_messages",
-        "calendar_create_event",
-        "drive_share_file",
-        "docs_update_document",
-        "sheets_update_values",
-      ]),
+      expectedToolNames,
     );
+    expect(
+      GOOGLE_WORKSPACE_TOOLS.map(
+        (tool) => `${GOOGLE_WORKSPACE_SERVER_NAME}__${tool.name}`,
+      ),
+    ).toEqual(expectedToolNames.map((name) => `GoogleWorkspace__${name}`));
+  });
+
+  it("marks every write, delete, and share tool as policy-gated", () => {
+    const writeTools = GOOGLE_WORKSPACE_TOOLS.filter(
+      (tool) => tool.annotations?.readOnlyHint === false,
+    );
+    expect(writeTools.map((tool) => tool.name)).toEqual([
+      "calendar_create_event",
+      "calendar_update_event",
+      "calendar_delete_event",
+      "drive_upload_file",
+      "drive_create_folder",
+      "drive_share_file",
+      "drive_delete_file",
+      "docs_create",
+      "docs_append",
+      "docs_replace_text",
+      "sheets_update",
+      "sheets_append",
+      "sheets_create",
+    ]);
   });
 });
 
 describe("GoogleWorkspaceClient", () => {
-  it("uses only request user's Google connection", async () => {
+  it("uses only authenticated request user's connection", async () => {
     const store = fakeStore();
     const client = new GoogleWorkspaceClient({
       connections: store,
@@ -59,172 +135,764 @@ describe("GoogleWorkspaceClient", () => {
 
     await client.execute({
       userId: "request-user",
-      toolName: "drive_list_files",
-      arguments: {},
+      toolName: "drive_search",
+      arguments: { query: "name contains 'report'" },
     });
 
     expect(store.getDecryptedTokens).toHaveBeenCalledWith("request-user");
-    expect(store.getDecryptedTokens).not.toHaveBeenCalledWith(
-      expect.stringMatching(/other|target/i),
-    );
+    expect(store.getDecryptedTokens).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects missing authenticated user", async () => {
-    const client = new GoogleWorkspaceClient({
-      connections: fakeStore(),
-      http: fakeHttp([]),
-      sleep: vi.fn(),
-    });
+  it("rejects missing authenticated user and inactive write policy", async () => {
+    const { client } = clientWith([]);
 
     await expect(
-      client.execute({ userId: undefined, toolName: "gmail_list_messages", arguments: {} }),
+      client.execute({
+        userId: undefined,
+        toolName: "gmail_search",
+        arguments: { query: "from:test@example.test" },
+      }),
     ).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_delete_file",
+        arguments: { fileId: "file-1" },
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("parses Gmail MIME headers and excludes oversized attachments", async () => {
-    const client = new GoogleWorkspaceClient({
-      connections: fakeStore(),
-      http: fakeHttp([
-        new Response(
-          JSON.stringify({
-            id: "m1",
-            payload: {
-              headers: [
-                { name: "Subject", value: "Hello" },
-                { name: "From", value: "sender@example.test" },
-              ],
-              parts: [
-                { mimeType: "text/plain", body: { data: "aGVsbG8" } },
-                {
-                  filename: "too-big.bin",
-                  mimeType: "application/octet-stream",
-                  body: { attachmentId: "a1", size: 30_000_000 },
-                },
-              ],
-            },
-          }),
-        ),
-      ]),
-      sleep: vi.fn(),
-    });
+  it("returns only requested minimal Gmail search metadata", async () => {
+    const { client, http } = clientWith([
+      new Response(
+        JSON.stringify({
+          messages: [{ id: "m1", threadId: "t1", snippet: "must not escape" }],
+          nextPageToken: "next",
+          resultSizeEstimate: 25,
+        }),
+      ),
+    ]);
 
     const result = await client.execute({
       userId: "request-user",
-      toolName: "gmail_get_message",
-      arguments: { messageId: "m1" },
+      toolName: "gmail_search",
+      arguments: { query: "is:unread", maxResults: 5, pageToken: "page" },
     });
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
+      messages: [{ id: "m1", threadId: "t1" }],
+      nextPageToken: "next",
+    });
+    const url = String(
+      (http.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0],
+    );
+    expect(url).toContain("q=is%3Aunread");
+    expect(url).toContain("maxResults=5");
+    expect(url).toContain("pageToken=page");
+    expect(url).toContain("fields=messages%28id%2CthreadId%29%2CnextPageToken");
+  });
+
+  it("parses nested Gmail MIME for messages and threads", async () => {
+    const mimeMessage = {
+      id: "m1",
+      threadId: "t1",
+      internalDate: "1787306400000",
+      snippet: "preview",
+      payload: {
+        headers: [
+          { name: "Subject", value: "Hello" },
+          { name: "From", value: "sender@example.test" },
+          { name: "To", value: "receiver@example.test" },
+        ],
+        parts: [
+          {
+            mimeType: "multipart/alternative",
+            parts: [{ mimeType: "text/plain", body: { data: "aGVsbG8" } }],
+          },
+          {
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            body: { attachmentId: "a1", size: 123 },
+          },
+        ],
+      },
+    };
+    const { client } = clientWith([
+      new Response(JSON.stringify(mimeMessage)),
+      new Response(JSON.stringify({ id: "t1", messages: [mimeMessage] })),
+    ]);
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_get_message",
+        arguments: { messageId: "m1" },
+      }),
+    ).resolves.toMatchObject({
+      id: "m1",
+      threadId: "t1",
       subject: "Hello",
       from: "sender@example.test",
       text: "hello",
-      attachments: [{ filename: "too-big.bin", available: false }],
+      attachments: [
+        {
+          filename: "report.pdf",
+          attachmentId: "a1",
+          available: true,
+        },
+      ],
+    });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_get_thread",
+        arguments: { threadId: "t1" },
+      }),
+    ).resolves.toMatchObject({
+      id: "t1",
+      messages: [{ id: "m1", subject: "Hello", text: "hello" }],
     });
   });
 
-  it("requires timezone-bearing ISO timestamps before calendar writes", async () => {
-    const client = new GoogleWorkspaceClient({
-      connections: fakeStore(),
-      http: fakeHttp([]),
-      sleep: vi.fn(),
+  it("enforces declared and decoded Gmail attachment limits", async () => {
+    const oversizedData = Buffer.alloc(MAX_GMAIL_ATTACHMENT_BYTES + 1).toString(
+      "base64url",
+    );
+    const { client } = clientWith([
+      new Response(
+        JSON.stringify({ data: "YQ", size: MAX_GMAIL_ATTACHMENT_BYTES + 1 }),
+      ),
+      new Response(JSON.stringify({ data: oversizedData, size: 1 })),
+      new Response(JSON.stringify({ data: "c2FmZQ", size: 4 })),
+    ]);
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_download_attachment",
+        arguments: { messageId: "m1", attachmentId: "a1" },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_download_attachment",
+        arguments: { messageId: "m1", attachmentId: "a2" },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_download_attachment",
+        arguments: { messageId: "m1", attachmentId: "a3" },
+      }),
+    ).resolves.toEqual({ size: 4, dataBase64: "c2FmZQ==" });
+  });
+
+  it("maps calendar freebusy with timezone and calendar IDs", async () => {
+    const { client, http } = clientWith([
+      new Response(JSON.stringify({ calendars: {} })),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "calendar_freebusy",
+      arguments: {
+        timeMin: "2026-08-21T10:00:00Z",
+        timeMax: "2026-08-21T15:00:00+03:00",
+        timeZone: "Europe/Istanbul",
+        calendarIds: ["primary", "team@example.test"],
+      },
     });
+
+    const [url, init] = (http.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://www.googleapis.com/calendar/v3/freeBusy");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      timeMin: "2026-08-21T10:00:00Z",
+      timeMax: "2026-08-21T15:00:00+03:00",
+      timeZone: "Europe/Istanbul",
+      items: [{ id: "primary" }, { id: "team@example.test" }],
+    });
+  });
+
+  it("requires offset timestamps and valid IANA timezone for calendar writes", async () => {
+    const { client } = clientWith([]);
+    const base = {
+      calendarId: "primary",
+      summary: "Meeting",
+      start: "2026-08-21T10:00:00Z",
+      end: "2026-08-21T11:00:00+03:00",
+    };
+
+    for (const arguments_ of [
+      { ...base, start: "2026-08-21T10:00:00", timeZone: "Europe/Istanbul" },
+      { ...base, timeZone: "UTC+3" },
+      { ...base },
+    ]) {
+      await expect(
+        client.execute({
+          userId: "request-user",
+          toolName: "calendar_create_event",
+          allowWrites: true,
+          arguments: arguments_,
+        }),
+      ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    }
+  });
+
+  it("uses PATCH and explicitly suppresses attendee notifications by default", async () => {
+    const { client, http } = clientWith([
+      new Response(JSON.stringify({ id: "event-1" })),
+      new Response(JSON.stringify({ id: "event-1" })),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "calendar_create_event",
+      allowWrites: true,
+      arguments: {
+        calendarId: "primary",
+        summary: "Meeting",
+        start: "2026-08-21T10:00:00Z",
+        end: "2026-08-21T14:00:00+03:00",
+        timeZone: "Europe/Istanbul",
+        attendees: [{ email: "guest@example.test" }],
+      },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "calendar_update_event",
+      allowWrites: true,
+      arguments: {
+        calendarId: "primary",
+        eventId: "event-1",
+        patch: { summary: "Renamed" },
+      },
+    });
+
+    const [createUrl, createInit] = (http.fetch as ReturnType<typeof vi.fn>)
+      .mock.calls[0];
+    const [updateUrl, updateInit] = (http.fetch as ReturnType<typeof vi.fn>)
+      .mock.calls[1];
+    expect(createUrl).toContain("sendUpdates=none");
+    expect(createInit.method).toBe("POST");
+    expect(updateUrl).toContain("sendUpdates=none");
+    expect(updateInit.method).toBe("PATCH");
+    expect(JSON.parse(String(updateInit.body))).toEqual({ summary: "Renamed" });
+  });
+
+  it("checks Drive metadata before download and returns bounded base64 content", async () => {
+    const { client, http } = clientWith([
+      new Response(
+        JSON.stringify({
+          id: "file-1",
+          name: "safe.txt",
+          mimeType: "text/plain",
+          size: "4",
+          owners: [{ emailAddress: "must-not-escape@example.test" }],
+        }),
+      ),
+      new Response(Buffer.from("safe"), {
+        headers: { "Content-Type": "text/plain", "Content-Length": "4" },
+      }),
+    ]);
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_download_file",
+        arguments: { fileId: "file-1" },
+      }),
+    ).resolves.toEqual({
+      file: {
+        id: "file-1",
+        name: "safe.txt",
+        mimeType: "text/plain",
+        size: "4",
+      },
+      size: 4,
+      dataBase64: Buffer.from("safe").toString("base64"),
+    });
+    expect(http.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks oversized Drive downloads before fetching content", async () => {
+    const { client, http } = clientWith([
+      new Response(
+        JSON.stringify({
+          id: "file-1",
+          name: "large.bin",
+          mimeType: "application/octet-stream",
+          size: String(MAX_DRIVE_DOWNLOAD_BYTES + 1),
+        }),
+      ),
+    ]);
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_download_file",
+        arguments: { fileId: "file-1" },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(http.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps Docs append and replace text to constrained batchUpdate requests", async () => {
+    const { client, http } = clientWith([
+      new Response(JSON.stringify({ replies: [] })),
+      new Response(JSON.stringify({ replies: [] })),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "docs_append",
+      allowWrites: true,
+      arguments: { documentId: "doc-1", text: "new text" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "docs_replace_text",
+      allowWrites: true,
+      arguments: {
+        documentId: "doc-1",
+        find: "old",
+        replace: "new",
+        matchCase: true,
+      },
+    });
+
+    expect(
+      JSON.parse(
+        String((http.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body),
+      ),
+    ).toEqual({
+      requests: [
+        {
+          insertText: {
+            endOfSegmentLocation: {},
+            text: "new text",
+          },
+        },
+      ],
+    });
+    expect(
+      JSON.parse(
+        String((http.fetch as ReturnType<typeof vi.fn>).mock.calls[1][1].body),
+      ),
+    ).toEqual({
+      requests: [
+        {
+          replaceAllText: {
+            containsText: { text: "old", matchCase: true },
+            replaceText: "new",
+          },
+        },
+      ],
+    });
+  });
+
+  it("allows Docs replacement with empty text", async () => {
+    const { client, http } = clientWith([
+      new Response(JSON.stringify({ replies: [] })),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "docs_replace_text",
+      allowWrites: true,
+      arguments: {
+        documentId: "doc-1",
+        find: "remove me",
+        replace: "",
+      },
+    });
+
+    expect(
+      JSON.parse(
+        String((http.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body),
+      ),
+    ).toMatchObject({
+      requests: [{ replaceAllText: { replaceText: "" } }],
+    });
+  });
+
+  it("maps Sheets batch_get ranges as repeated query parameters", async () => {
+    const { client, http } = clientWith([
+      new Response(
+        JSON.stringify({ spreadsheetId: "sheet-1", valueRanges: [] }),
+      ),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "sheets_batch_get",
+      arguments: {
+        spreadsheetId: "sheet-1",
+        ranges: ["Sheet 1!A1:B2", "Data!C:C"],
+      },
+    });
+
+    const url = new URL(
+      String((http.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]),
+    );
+    expect(url.pathname).toBe("/v4/spreadsheets/sheet-1/values:batchGet");
+    expect(url.searchParams.getAll("ranges")).toEqual([
+      "Sheet 1!A1:B2",
+      "Data!C:C",
+    ]);
+  });
+
+  it("routes every remaining read tool to its bounded product endpoint", async () => {
+    const { client, http } = clientWith([
+      new Response(JSON.stringify({ items: [] })),
+      new Response(JSON.stringify({ items: [] })),
+      new Response(JSON.stringify({ id: "event-1" })),
+      new Response(
+        JSON.stringify({ id: "file-1", name: "file.txt", owners: ["hidden"] }),
+      ),
+      new Response(JSON.stringify({ files: [] })),
+      new Response(JSON.stringify({ documentId: "doc-1" })),
+      new Response(JSON.stringify({ range: "Sheet1!A1", values: [["ok"]] })),
+    ]);
+
+    const calls = [
+      client.execute({
+        userId: "request-user",
+        toolName: "calendar_list_calendars",
+        arguments: {},
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "calendar_list_events",
+        arguments: {
+          calendarId: "primary",
+          timeMin: "2026-08-21T10:00:00Z",
+          timeMax: "2026-08-21T11:00:00Z",
+        },
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "calendar_get_event",
+        arguments: { calendarId: "primary", eventId: "event-1" },
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_get_file",
+        arguments: { fileId: "file-1" },
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_list_folder",
+        arguments: { folderId: "folder'1" },
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "docs_get",
+        arguments: { documentId: "doc-1" },
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "sheets_get",
+        arguments: { spreadsheetId: "sheet-1", range: "Sheet1!A1" },
+      }),
+    ];
+    const results = await Promise.all(calls);
+
+    expect(results[3]).toEqual({ id: "file-1", name: "file.txt" });
+    const urls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([url]) => String(url),
+    );
+    expect(urls).toEqual([
+      "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+      expect.stringContaining("/calendar/v3/calendars/primary/events?"),
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/event-1",
+      expect.stringContaining("/drive/v3/files/file-1?fields="),
+      expect.stringContaining("/drive/v3/files?"),
+      "https://docs.googleapis.com/v1/documents/doc-1",
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/Sheet1!A1",
+    ]);
+    expect(new URL(urls[4]).searchParams.get("q")).toBe(
+      "'folder\\'1' in parents and trashed = false",
+    );
+  });
+
+  it("routes every remaining write tool with active policy and safe defaults", async () => {
+    const { client, http } = clientWith([
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify({ id: "upload-1", name: "upload.txt" })),
+      new Response(
+        JSON.stringify({
+          id: "folder-1",
+          name: "Folder",
+          mimeType: "application/vnd.google-apps.folder",
+        }),
+      ),
+      new Response(JSON.stringify({ id: "permission-1" })),
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify({ documentId: "doc-1" })),
+      new Response(JSON.stringify({ updatedCells: 1 })),
+      new Response(JSON.stringify({ updates: { updatedCells: 1 } })),
+      new Response(JSON.stringify({ spreadsheetId: "sheet-2" })),
+    ]);
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "calendar_delete_event",
+      allowWrites: true,
+      arguments: { calendarId: "primary", eventId: "event-1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_upload_file",
+      allowWrites: true,
+      arguments: {
+        name: "upload.txt",
+        mimeType: "text/plain",
+        contentBase64: Buffer.from("raw content").toString("base64"),
+        parentId: "folder-1",
+      },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_create_folder",
+      allowWrites: true,
+      arguments: { name: "Folder", parentId: "root" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_share_file",
+      allowWrites: true,
+      arguments: {
+        fileId: "file-1",
+        type: "user",
+        role: "reader",
+        emailAddress: "reader@example.test",
+      },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_delete_file",
+      allowWrites: true,
+      arguments: { fileId: "file-1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "docs_create",
+      allowWrites: true,
+      arguments: { title: "Document" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "sheets_update",
+      allowWrites: true,
+      arguments: {
+        spreadsheetId: "sheet-1",
+        range: "A1",
+        values: [["updated"]],
+        valueInputOption: "RAW",
+      },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "sheets_append",
+      allowWrites: true,
+      arguments: {
+        spreadsheetId: "sheet-1",
+        range: "A:A",
+        values: [["appended"]],
+      },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "sheets_create",
+      allowWrites: true,
+      arguments: { title: "Spreadsheet" },
+    });
+
+    const requests = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(requests[0][0]).toContain("sendUpdates=none");
+    expect(requests[0][1].method).toBe("DELETE");
+    expect(requests[1][0]).toContain("uploadType=multipart");
+    expect(
+      Buffer.from(requests[1][1].body).includes(Buffer.from("raw content")),
+    ).toBe(true);
+    expect(requests[3][0]).toContain("sendNotificationEmail=false");
+    expect(requests[4][1].method).toBe("DELETE");
+    expect(requests[5][0]).toBe("https://docs.googleapis.com/v1/documents");
+    expect(requests[6][1].method).toBe("PUT");
+    expect(requests[6][0]).toContain("valueInputOption=RAW");
+    expect(requests[7][0]).toContain(":append?valueInputOption=USER_ENTERED");
+    expect(requests[8][0]).toBe(
+      "https://sheets.googleapis.com/v4/spreadsheets",
+    );
+  });
+
+  it("rejects malformed attendee and Sheets row structures before writes", async () => {
+    const { client, http } = clientWith([]);
 
     await expect(
       client.execute({
         userId: "request-user",
         toolName: "calendar_create_event",
         allowWrites: true,
-        arguments: { calendarId: "primary", start: "2026-08-21T10:00:00", end: "2026-08-21T11:00:00" },
+        arguments: {
+          calendarId: "primary",
+          start: "2026-08-21T10:00:00Z",
+          end: "2026-08-21T11:00:00Z",
+          timeZone: "Europe/Istanbul",
+          attendees: [{ displayName: "No email" }],
+        },
       }),
     ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "sheets_update",
+        allowWrites: true,
+        arguments: {
+          spreadsheetId: "sheet-1",
+          range: "A1",
+          values: ["not-a-row"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid pagination and upload media type before Google calls", async () => {
+    const { client, http } = clientWith([]);
 
     await expect(
       client.execute({
         userId: "request-user",
-        toolName: "calendar_update_event",
+        toolName: "gmail_search",
+        arguments: { query: "is:unread", maxResults: 101 },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_upload_file",
         allowWrites: true,
         arguments: {
-          calendarId: "primary",
-          eventId: "event-1",
-          patch: { start: { dateTime: "2026-08-21T10:00:00" } },
+          name: "unsafe.txt",
+          mimeType: "text/plain\r\nX-Injected: true",
+          contentBase64: "YQ==",
         },
       }),
     ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(http.fetch).not.toHaveBeenCalled();
   });
 
-  it("retries transient Google responses with bounded backoff", async () => {
-    const sleep = vi.fn(async () => undefined);
-    const client = new GoogleWorkspaceClient({
-      connections: {
-        ...fakeStore(),
-        getDecryptedTokens: vi.fn(async () => ({ ...userConnection, expiresAt: new Date(Date.now() + 60_000) })),
-      },
-      http: fakeHttp([
-        new Response("busy", { status: 429, headers: { "Retry-After": "0" } }),
-        new Response(JSON.stringify({ files: [] })),
-      ]),
-      sleep,
-    });
+  it("gives exact reconnect guidance when required scope is missing", async () => {
+    const { client } = clientWith(
+      [],
+      ["https://www.googleapis.com/auth/gmail.readonly"],
+    );
 
-    await client.execute({ userId: "request-user", toolName: "drive_list_files", arguments: {} });
-    expect(sleep).toHaveBeenCalledTimes(1);
-  });
-
-  it("refreshes once for concurrent requests and persists rotated refresh token", async () => {
-    process.env.GOOGLE_CLIENT_ID = "test-client";
-    process.env.GOOGLE_CLIENT_SECRET = "test-secret";
-    const store = {
-      ...fakeStore(),
-      getDecryptedTokens: vi.fn(async () => ({ ...userConnection, expiresAt: new Date(Date.now() - 60_000) })),
-    };
-    const http = fakeHttp([
-      new Response(JSON.stringify({ access_token: "new-access", refresh_token: "rotated", expires_in: 3600 })),
-      new Response(JSON.stringify({ files: [] })),
-      new Response(JSON.stringify({ files: [] })),
-    ]);
-    const client = new GoogleWorkspaceClient({ connections: store, http, sleep: vi.fn() });
-
-    await Promise.all([
-      client.execute({ userId: "request-user", toolName: "drive_list_files", arguments: {} }),
-      client.execute({ userId: "request-user", toolName: "drive_list_files", arguments: {} }),
-    ]);
-
-    expect(http.fetch).toHaveBeenCalledTimes(3);
-    expect(store.upsertConnection).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "request-user", refreshToken: "rotated", accessToken: "new-access" }),
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "sheets_get",
+        arguments: { spreadsheetId: "sheet-1", range: "A1" },
+      }),
+    ).rejects.toEqual(
+      new GoogleWorkspaceError(
+        "FORBIDDEN",
+        'Google connection lacks required scope. Reconnect and explicitly select "spreadsheets.readonly" (or "spreadsheets").',
+      ),
     );
   });
 
-  it("maps Google errors without leaking upstream response bodies", async () => {
-    const client = new GoogleWorkspaceClient({
-      connections: {
-        ...fakeStore(),
-        getDecryptedTokens: vi.fn(async () => ({ ...userConnection, expiresAt: new Date(Date.now() + 60_000) })),
-      },
-      http: fakeHttp([new Response("secret upstream detail", { status: 403 })]),
-      sleep: vi.fn(),
-    });
-
-    await expect(
-      client.execute({ userId: "request-user", toolName: "drive_list_files", arguments: {} }),
-    ).rejects.toEqual(new GoogleWorkspaceError("FORBIDDEN", "Google access was denied"));
-  });
-
-  it("uses product API origins for Docs and Sheets", async () => {
+  it("retries transient reads with bounded backoff", async () => {
+    const sleep = vi.fn(async () => undefined);
     const http = fakeHttp([
-      new Response(JSON.stringify({ documentId: "doc-1" })),
-      new Response(JSON.stringify({ spreadsheetId: "sheet-1" })),
+      new Response("busy", { status: 429, headers: { "Retry-After": "0" } }),
+      new Response(JSON.stringify({ files: [] })),
     ]);
     const client = new GoogleWorkspaceClient({
       connections: fakeStore(),
       http,
+      sleep,
+    });
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_search",
+      arguments: { query: "trashed = false" },
+    });
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(http.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes once for concurrent requests and persists token rotation", async () => {
+    process.env.GOOGLE_CLIENT_ID = "test-client";
+    process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+    const store = {
+      ...fakeStore(),
+      getDecryptedTokens: vi.fn(async () => ({
+        ...userConnection,
+        expiresAt: new Date(Date.now() - 60_000),
+      })),
+    };
+    const http = fakeHttp([
+      new Response(
+        JSON.stringify({
+          access_token: "new-access",
+          refresh_token: "rotated",
+          expires_in: 3600,
+        }),
+      ),
+      new Response(JSON.stringify({ labels: [] })),
+      new Response(JSON.stringify({ labels: [] })),
+    ]);
+    const client = new GoogleWorkspaceClient({
+      connections: store,
+      http,
       sleep: vi.fn(),
     });
 
-    await client.execute({ userId: "request-user", toolName: "docs_get_document", arguments: { documentId: "doc-1" } });
-    await client.execute({ userId: "request-user", toolName: "sheets_get_spreadsheet", arguments: { spreadsheetId: "sheet-1" } });
+    await Promise.all([
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+    ]);
 
-    expect(http.fetch).toHaveBeenNthCalledWith(1, "https://docs.googleapis.com/v1/documents/doc-1", expect.any(Object));
-    expect(http.fetch).toHaveBeenNthCalledWith(2, "https://sheets.googleapis.com/v4/spreadsheets/sheet-1?includeGridData=false", expect.any(Object));
+    expect(http.fetch).toHaveBeenCalledTimes(3);
+    expect(store.upsertConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "request-user",
+        refreshToken: "rotated",
+        accessToken: "new-access",
+      }),
+    );
+  });
+
+  it("maps scope denial without leaking Google response content", async () => {
+    const { client } = clientWith([
+      new Response("secret upstream detail", { status: 403 }),
+    ]);
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+    ).rejects.toEqual(
+      new GoogleWorkspaceError(
+        "FORBIDDEN",
+        "Google denied access. Reconnect and re-consent to required scope if it was not granted.",
+      ),
+    );
   });
 });
