@@ -153,6 +153,8 @@ export function EditNamespace({
   const handleEditNamespace = async (data: EditNamespaceFormData) => {
     if (!namespace) return;
 
+    if (serversLoading) return;
+
     setIsUpdating(true);
     try {
       // Create the API request payload
@@ -213,7 +215,7 @@ export function EditNamespace({
                 id="edit-name"
                 placeholder={t("namespaces:edit.namePlaceholder")}
                 {...editForm.register("name")}
-                disabled={isUpdating}
+                disabled={isUpdating || serversLoading}
               />
               {editForm.formState.errors.name && (
                 <p className="text-sm text-red-500">

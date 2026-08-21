@@ -12,6 +12,7 @@ vi.mock("../db", () => ({
 vi.mock("../db/repositories", () => ({
   namespacesRepository: {
     findByUuid: vi.fn(),
+    update: vi.fn(),
   },
   namespaceMappingsRepository: {
     bulkUpdateToolStatusByNamespace: vi.fn(),
@@ -194,5 +195,45 @@ describe("Bulk update namespace tool status", () => {
     expect(metaMcpServerPool.invalidateOpenApiSessions).toHaveBeenCalledWith([
       "123e4567-e89b-12d3-a456-426614174000",
     ]);
+  });
+});
+
+describe("Namespace update server mappings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("preserves existing server mappings when an edit submits an empty selection", async () => {
+    vi.mocked(namespacesRepository.findByUuid).mockResolvedValueOnce({
+      uuid: "123e4567-e89b-12d3-a456-426614174000",
+      name: "Test Namespace",
+      description: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+      user_id: "user-1",
+    });
+    vi.mocked(namespacesRepository.update).mockResolvedValueOnce({
+      uuid: "123e4567-e89b-12d3-a456-426614174000",
+      name: "Renamed Namespace",
+      description: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+      user_id: "user-1",
+    });
+
+    const result = await namespacesImplementations.update(
+      {
+        uuid: "123e4567-e89b-12d3-a456-426614174000",
+        name: "Renamed Namespace",
+        description: "",
+        mcpServerUuids: [],
+      },
+      "user-1",
+    );
+
+    expect(result.success).toBe(true);
+    expect(namespacesRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ mcpServerUuids: undefined }),
+    );
   });
 });

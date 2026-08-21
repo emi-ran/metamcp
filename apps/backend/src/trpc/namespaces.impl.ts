@@ -342,10 +342,18 @@ export const namespacesImplementations = {
         input.user_id !== undefined ? input.user_id : existingNamespace.user_id;
       const isPublicNamespace = effectiveUserId === null;
 
+      // An empty server list removes every runtime server mapping and makes
+      // public MCP endpoints advertise zero tools. Keep existing mappings on
+      // ordinary namespace edits; server membership changes through its own UI.
+      const mcpServerUuids =
+        input.mcpServerUuids && input.mcpServerUuids.length > 0
+          ? input.mcpServerUuids
+          : undefined;
+
       // Validate server accessibility and relationship rules if servers are being updated
-      if (input.mcpServerUuids && input.mcpServerUuids.length > 0) {
+      if (mcpServerUuids) {
         // Get detailed server information to validate access and ownership
-        const serverPromises = input.mcpServerUuids.map((uuid) =>
+        const serverPromises = mcpServerUuids.map((uuid) =>
           mcpServersRepository.findByUuid(uuid),
         );
         const servers = await Promise.all(serverPromises);
@@ -386,7 +394,7 @@ export const namespacesImplementations = {
         name: input.name,
         description: input.description,
         user_id: input.user_id,
-        mcpServerUuids: input.mcpServerUuids,
+        mcpServerUuids,
       });
 
       // Invalidate idle MetaMCP server for this namespace since the MCP servers list may have changed
