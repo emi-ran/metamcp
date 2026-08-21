@@ -64,7 +64,9 @@ function tool(
     inputSchema: object({
       connectionId: {
         type: "string",
-        description: "Optional Google connection ID. Defaults to user's default account.",
+        format: "uuid",
+        description:
+          "Optional Google connection ID (UUID). Specify to route this request to a specific connected Google account. Defaults to the user's default account.",
       },
       ...properties,
     }, required),

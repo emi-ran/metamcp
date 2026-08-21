@@ -65,9 +65,11 @@ const userConnection = {
 
 function fakeStore(scopes = allScopes): GoogleConnectionStore {
   return {
-    getDecryptedTokens: vi.fn(async (userId: string) =>
-      userId === "request-user" ? { ...userConnection, scopes } : null,
-    ),
+    getDecryptedTokens: vi.fn(async (userId: string, connectionId?: string) => {
+      if (userId !== "request-user") return null;
+      if (connectionId === "non-existent-or-other-user-connection-id") return null;
+      return { ...userConnection, scopes };
+    }),
     upsertConnection: vi.fn(async () => undefined),
   };
 }
@@ -100,6 +102,23 @@ describe("Google Workspace catalog", () => {
         (tool) => `${GOOGLE_WORKSPACE_SERVER_NAME}__${tool.name}`,
       ),
     ).toEqual(expectedToolNames.map((name) => `GoogleWorkspace__${name}`));
+  });
+
+  it("includes optional connectionId UUID property in every tool schema with additionalProperties: false", () => {
+    for (const tool of GOOGLE_WORKSPACE_TOOLS) {
+      expect(tool.inputSchema.type).toBe("object");
+      expect(tool.inputSchema.additionalProperties).toBe(false);
+      expect(tool.inputSchema.properties).toBeDefined();
+      expect(tool.inputSchema.properties).toHaveProperty("connectionId");
+      expect((tool.inputSchema.properties as any).connectionId).toMatchObject({
+        type: "string",
+        format: "uuid",
+      });
+      // connectionId must be optional, not in required
+      if (tool.inputSchema.required) {
+        expect(tool.inputSchema.required).not.toContain("connectionId");
+      }
+    }
   });
 
   it("marks every write, delete, and share tool as policy-gated", () => {
@@ -139,8 +158,46 @@ describe("GoogleWorkspaceClient", () => {
       arguments: { query: "name contains 'report'" },
     });
 
-    expect(store.getDecryptedTokens).toHaveBeenCalledWith("request-user");
+    expect(store.getDecryptedTokens).toHaveBeenCalledWith("request-user", undefined);
     expect(store.getDecryptedTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes connectionId when specified and routes to targeted connection", async () => {
+    const store = fakeStore();
+    const client = new GoogleWorkspaceClient({
+      connections: store,
+      http: fakeHttp([new Response(JSON.stringify({ files: [] }))]),
+      sleep: vi.fn(),
+    });
+
+    const specificConnectionId = "11111111-2222-4333-8444-555555555555";
+    await client.execute({
+      userId: "request-user",
+      toolName: "drive_search",
+      arguments: { query: "name contains 'report'", connectionId: specificConnectionId },
+      connectionId: specificConnectionId,
+    });
+
+    expect(store.getDecryptedTokens).toHaveBeenCalledWith("request-user", specificConnectionId);
+    expect(store.getDecryptedTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("safely rejects when non-owner or invalid connectionId returns null from repository", async () => {
+    const store = fakeStore();
+    const client = new GoogleWorkspaceClient({
+      connections: store,
+      http: fakeHttp([]),
+      sleep: vi.fn(),
+    });
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "drive_search",
+        arguments: { query: "name contains 'report'" },
+        connectionId: "non-existent-or-other-user-connection-id",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_CONNECTED" });
   });
 
   it("rejects missing authenticated user and inactive write policy", async () => {
