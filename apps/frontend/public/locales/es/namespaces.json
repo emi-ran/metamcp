@@ -101,6 +101,13 @@
     "source": "Origen",
     "updatedAt": "Actualizado En",
     "searchTools": "Buscar tools...",
+    "filterStatus": "Filtrar estado",
+    "statusFilter": {
+      "all": "Todas",
+      "active": "Activas",
+      "inactive": "Inactivas"
+    },
+    "pageTab": "Página {{page}}",
     "toolsCount": "{{count}} de {{total}} tools",
     "noToolsFound": "No se encontraron tools de MetaMCP ni guardadas en el namespace",
     "noToolsMatch": "Ninguna tool coincide con su búsqueda",

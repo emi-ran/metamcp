@@ -56,7 +56,18 @@ export class NamespaceMappingsRepository {
       .set({
         status,
       })
-      .where(eq(namespaceToolMappingsTable.namespace_uuid, namespaceUuid))
+      .where(
+        and(
+          eq(namespaceToolMappingsTable.namespace_uuid, namespaceUuid),
+          sql`EXISTS (
+            SELECT 1
+            FROM ${namespaceServerMappingsTable}
+            WHERE ${namespaceServerMappingsTable.namespace_uuid} = ${namespaceToolMappingsTable.namespace_uuid}
+              AND ${namespaceServerMappingsTable.mcp_server_uuid} = ${namespaceToolMappingsTable.mcp_server_uuid}
+              AND ${namespaceServerMappingsTable.status} = 'ACTIVE'
+          )`,
+        ),
+      )
       .returning();
 
     return updatedMappings;

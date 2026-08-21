@@ -94,6 +94,13 @@
     "source": "来源",
     "updatedAt": "更新时间",
     "searchTools": "搜索工具...",
+    "filterStatus": "筛选状态",
+    "statusFilter": {
+      "all": "全部",
+      "active": "活跃",
+      "inactive": "非活跃"
+    },
+    "pageTab": "第 {{page}} 页",
     "toolsCount": "{{count}} / {{total}} 个工具",
     "noToolsFound": "未从 MetaMCP 找到工具或保存到命名空间",
     "noToolsMatch": "没有工具匹配您的搜索",

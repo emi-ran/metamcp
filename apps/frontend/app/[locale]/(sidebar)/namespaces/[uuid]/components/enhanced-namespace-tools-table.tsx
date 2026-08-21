@@ -45,6 +45,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -54,6 +61,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -127,6 +135,7 @@ type SortField =
   | "description"
   | "updated_at";
 type SortDirection = "asc" | "desc";
+type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
 
 type OverrideDraft = {
   name?: string;
@@ -134,6 +143,8 @@ type OverrideDraft = {
   description?: string;
   annotations?: string;
 };
+
+const TOOLS_PER_PAGE = 50;
 
 const formatAnnotations = (annotations?: Record<string, unknown> | null) => {
   return annotations ? JSON.stringify(annotations, null, 2) : "";
@@ -151,6 +162,8 @@ export function EnhancedNamespaceToolsTable({
 }: EnhancedNamespaceToolsTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [editingOverrides, setEditingOverrides] = useState<Set<string>>(
@@ -574,6 +587,7 @@ export function EnhancedNamespaceToolsTable({
 
   // Handle sorting
   const handleSort = (field: SortField) => {
+    setCurrentPage(1);
     if (sortField === field) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
@@ -602,6 +616,10 @@ export function EnhancedNamespaceToolsTable({
       });
     }
 
+    if (statusFilter !== "ALL") {
+      filtered = filtered.filter((tool) => tool.status === statusFilter);
+    }
+
     // Apply sorting
     filtered.sort((a, b) => {
       let aValue = a[sortField] || "";
@@ -623,7 +641,17 @@ export function EnhancedNamespaceToolsTable({
     });
 
     return filtered;
-  }, [enhancedTools, searchTerm, sortField, sortDirection]);
+  }, [enhancedTools, searchTerm, statusFilter, sortField, sortDirection]);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredAndSortedTools.length / TOOLS_PER_PAGE),
+  );
+  const visiblePage = Math.min(currentPage, pageCount);
+  const paginatedTools = filteredAndSortedTools.slice(
+    (visiblePage - 1) * TOOLS_PER_PAGE,
+    visiblePage * TOOLS_PER_PAGE,
+  );
 
   // Render sort icon
   const renderSortIcon = (field: SortField) => {
@@ -796,7 +824,11 @@ export function EnhancedNamespaceToolsTable({
     );
   }
 
-  const savedToolsCount = savedTools.length;
+  const activeSavedToolsCount = savedTools.filter(
+    (tool) =>
+      servers.find((server) => server.uuid === tool.serverUuid)?.status ===
+      "ACTIVE",
+  ).length;
   const isBulkMutating =
     sessionInitializing || bulkUpdateToolStatusMutation.isPending;
 
@@ -818,7 +850,7 @@ export function EnhancedNamespaceToolsTable({
             variant="outline"
             size="sm"
             onClick={() => setConfirmBulkAction("ACTIVE")}
-            disabled={isBulkMutating || savedToolsCount === 0}
+            disabled={isBulkMutating || activeSavedToolsCount === 0}
             className="text-xs"
           >
             {t("namespaces:toolManagement.enableAll")}
@@ -827,7 +859,7 @@ export function EnhancedNamespaceToolsTable({
             variant="outline"
             size="sm"
             onClick={() => setConfirmBulkAction("INACTIVE")}
-            disabled={isBulkMutating || savedToolsCount === 0}
+            disabled={isBulkMutating || activeSavedToolsCount === 0}
             className="text-xs"
           >
             {t("namespaces:toolManagement.disableAll")}
@@ -840,10 +872,37 @@ export function EnhancedNamespaceToolsTable({
             <Input
               placeholder={t("namespaces:enhancedToolsTable.searchTools")}
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="pl-10"
             />
           </div>
+          <Select
+            value={statusFilter}
+            onValueChange={(value: StatusFilter) => {
+              setStatusFilter(value);
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue
+                placeholder={t("namespaces:enhancedToolsTable.filterStatus")}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">
+                {t("namespaces:enhancedToolsTable.statusFilter.all")}
+              </SelectItem>
+              <SelectItem value="ACTIVE">
+                {t("namespaces:enhancedToolsTable.statusFilter.active")}
+              </SelectItem>
+              <SelectItem value="INACTIVE">
+                {t("namespaces:enhancedToolsTable.statusFilter.inactive")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
           <div className="text-sm text-muted-foreground whitespace-nowrap">
             {t("namespaces:enhancedToolsTable.toolsCount", {
               count: filteredAndSortedTools.length,
@@ -876,15 +935,17 @@ export function EnhancedNamespaceToolsTable({
             <AlertDialogDescription>
               {confirmBulkAction === "ACTIVE"
                 ? t("namespaces:toolManagement.confirmEnableAllDescription", {
-                    count: savedToolsCount,
+                    count: activeSavedToolsCount,
                   })
                 : t("namespaces:toolManagement.confirmDisableAllDescription", {
-                    count: savedToolsCount,
+                    count: activeSavedToolsCount,
                   })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkUpdateToolStatusMutation.isPending}>
+            <AlertDialogCancel
+              disabled={bulkUpdateToolStatusMutation.isPending}
+            >
               {t("namespaces:edit.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
@@ -914,7 +975,10 @@ export function EnhancedNamespaceToolsTable({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSearchTerm("")}
+              onClick={() => {
+                setSearchTerm("");
+                setCurrentPage(1);
+              }}
               className="mt-2"
             >
               {t("namespaces:enhancedToolsTable.clearSearch")}
@@ -937,676 +1001,710 @@ export function EnhancedNamespaceToolsTable({
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <Table className="min-w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40px]"></TableHead>
-                <TableHead className="min-w-[150px] w-[200px]">
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleSort("name")}
-                    className="h-auto p-0 font-medium hover:bg-transparent"
-                  >
-                    {t("namespaces:enhancedToolsTable.toolName")}
-                    {renderSortIcon("name")}
-                  </Button>
-                </TableHead>
-                <TableHead className="min-w-[120px] w-[150px]">
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleSort("serverName")}
-                    className="h-auto p-0 font-medium hover:bg-transparent"
-                  >
-                    {t("namespaces:enhancedToolsTable.mcpServer")}
-                    {renderSortIcon("serverName")}
-                  </Button>
-                </TableHead>
-                <TableHead className="w-[80px]">
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleSort("status")}
-                    className="h-auto p-0 font-medium hover:bg-transparent"
-                  >
-                    {t("namespaces:enhancedToolsTable.status")}
-                    {renderSortIcon("status")}
-                  </Button>
-                </TableHead>
-                <TableHead className="min-w-[200px] max-w-[300px]">
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleSort("description")}
-                    className="h-auto p-0 font-medium hover:bg-transparent"
-                  >
-                    {t("namespaces:enhancedToolsTable.description")}
-                    {renderSortIcon("description")}
-                  </Button>
-                </TableHead>
-                <TableHead className="w-[100px]">
-                  {t("namespaces:enhancedToolsTable.source")}
-                </TableHead>
-                <TableHead className="w-[130px]">
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleSort("updated_at")}
-                    className="h-auto p-0 font-medium hover:bg-transparent"
-                  >
-                    {t("namespaces:enhancedToolsTable.updatedAt")}
-                    {renderSortIcon("updated_at")}
-                  </Button>
-                </TableHead>
-                <TableHead className="w-[40px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAndSortedTools.map((tool) => {
-                const toolId = getToolId(tool);
-                const isExpanded = expandedRows.has(toolId);
-                const parameters = getToolParameters(tool);
-                const isToggling =
-                  sessionInitializing || updateToolStatusMutation.isPending;
-                const hasNameOverride = Boolean(tool.overrideName);
-                const hasTitleOverride =
-                  tool.overrideTitle !== null &&
-                  tool.overrideTitle !== undefined;
-                const displayTitle = tool.overrideTitle ?? tool.title;
-                const originalTitle = tool.title ?? tool.name ?? "";
-                const hasAnyOverride = hasNameOverride || hasTitleOverride;
-                const hasAnnotationOverrides =
-                  tool.overrideAnnotations &&
-                  Object.keys(tool.overrideAnnotations).length > 0;
+        <>
+          <div className="overflow-x-auto">
+            <Table className="min-w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40px]"></TableHead>
+                  <TableHead className="min-w-[150px] w-[200px]">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort("name")}
+                      className="h-auto p-0 font-medium hover:bg-transparent"
+                    >
+                      {t("namespaces:enhancedToolsTable.toolName")}
+                      {renderSortIcon("name")}
+                    </Button>
+                  </TableHead>
+                  <TableHead className="min-w-[120px] w-[150px]">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort("serverName")}
+                      className="h-auto p-0 font-medium hover:bg-transparent"
+                    >
+                      {t("namespaces:enhancedToolsTable.mcpServer")}
+                      {renderSortIcon("serverName")}
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-[80px]">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort("status")}
+                      className="h-auto p-0 font-medium hover:bg-transparent"
+                    >
+                      {t("namespaces:enhancedToolsTable.status")}
+                      {renderSortIcon("status")}
+                    </Button>
+                  </TableHead>
+                  <TableHead className="min-w-[200px] max-w-[300px]">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort("description")}
+                      className="h-auto p-0 font-medium hover:bg-transparent"
+                    >
+                      {t("namespaces:enhancedToolsTable.description")}
+                      {renderSortIcon("description")}
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-[100px]">
+                    {t("namespaces:enhancedToolsTable.source")}
+                  </TableHead>
+                  <TableHead className="w-[130px]">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort("updated_at")}
+                      className="h-auto p-0 font-medium hover:bg-transparent"
+                    >
+                      {t("namespaces:enhancedToolsTable.updatedAt")}
+                      {renderSortIcon("updated_at")}
+                    </Button>
+                  </TableHead>
+                  <TableHead className="w-[40px]"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedTools.map((tool) => {
+                  const toolId = getToolId(tool);
+                  const isExpanded = expandedRows.has(toolId);
+                  const parameters = getToolParameters(tool);
+                  const isToggling =
+                    sessionInitializing || updateToolStatusMutation.isPending;
+                  const hasNameOverride = Boolean(tool.overrideName);
+                  const hasTitleOverride =
+                    tool.overrideTitle !== null &&
+                    tool.overrideTitle !== undefined;
+                  const displayTitle = tool.overrideTitle ?? tool.title;
+                  const originalTitle = tool.title ?? tool.name ?? "";
+                  const hasAnyOverride = hasNameOverride || hasTitleOverride;
+                  const hasAnnotationOverrides =
+                    tool.overrideAnnotations &&
+                    Object.keys(tool.overrideAnnotations).length > 0;
 
-                const indicatorBadges: React.ReactNode[] = [];
-                if (hasAnyOverride) {
-                  indicatorBadges.push(
-                    <Tooltip key="override-indicator">
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant="outline"
-                          className="bg-muted/30 text-muted-foreground border-muted/40 px-2 py-0.5 cursor-default"
-                        >
-                          <PenSquare className="h-3 w-3" />
-                          {t("namespaces:enhancedToolsTable.overridesBadge")}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {t("namespaces:enhancedToolsTable.overridesTooltip")}
-                      </TooltipContent>
-                    </Tooltip>,
-                  );
-                }
-
-                if (hasAnnotationOverrides) {
-                  indicatorBadges.push(
-                    <Tooltip key="annotation-indicator">
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant="outline"
-                          className="bg-muted/30 text-muted-foreground border-muted/40 px-2 py-0.5 cursor-default"
-                        >
-                          <Braces className="h-3 w-3" />
-                          {t("namespaces:enhancedToolsTable.annotationsBadge")}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {t("namespaces:enhancedToolsTable.annotationsTooltip")}
-                      </TooltipContent>
-                    </Tooltip>,
-                  );
-                }
-
-                return (
-                  <React.Fragment key={toolId}>
-                    {/* Main row */}
-                    <TableRow className="group">
-                      <TableCell className="w-[40px]">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0"
-                          onClick={() => toggleRowExpansion(toolId)}
-                        >
-                          {isExpanded ? (
-                            <EyeOff className="h-3 w-3" />
-                          ) : (
-                            <Eye className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell className="font-medium min-w-[150px] w-[200px]">
-                        <div className="flex items-start gap-3">
-                          <Wrench className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <span className="truncate font-medium">
-                              {tool.overrideName || tool.name}
-                            </span>
-                            {hasNameOverride && (
-                              <span className="text-xs text-muted-foreground truncate">
-                                Original name: {tool.name}
-                              </span>
-                            )}
-                            {displayTitle && (
-                              <span className="text-xs text-muted-foreground truncate">
-                                Title: {displayTitle}
-                              </span>
-                            )}
-                            {hasTitleOverride && (
-                              <span className="text-[10px] text-muted-foreground truncate">
-                                Original title: {originalTitle || "—"}
-                              </span>
-                            )}
-                          </div>
-                          {indicatorBadges.length > 0 && (
-                            <div className="flex flex-col gap-1 flex-shrink-0 min-w-[110px]">
-                              {indicatorBadges}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[120px] w-[150px]">
-                        {tool.serverName && tool.serverUuid ? (
-                          <Link
-                            href={`/mcp-servers/${tool.serverUuid}`}
-                            className="flex items-center gap-2 hover:underline"
+                  const indicatorBadges: React.ReactNode[] = [];
+                  if (hasAnyOverride) {
+                    indicatorBadges.push(
+                      <Tooltip key="override-indicator">
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="bg-muted/30 text-muted-foreground border-muted/40 px-2 py-0.5 cursor-default"
                           >
-                            <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="font-medium truncate">
-                              {tool.serverName}
-                            </span>
-                          </Link>
-                        ) : tool.serverName ? (
-                          <div className="flex items-center gap-2">
-                            <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="font-medium truncate">
-                              {tool.serverName}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground italic">
-                            {t("namespaces:enhancedToolsTable.unknownServer")}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[80px]">
-                        {tool.sources.saved ? (
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={tool.status === "ACTIVE"}
-                              onCheckedChange={() => handleStatusToggle(tool)}
-                              disabled={isToggling}
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground italic">
-                            -
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="min-w-[200px] max-w-[300px]">
-                        <div className="w-full">
-                          {tool.overrideDescription || tool.description ? (
-                            <div className="flex flex-col gap-1">
-                              <p className="text-sm text-muted-foreground line-clamp-2 break-words">
-                                {tool.overrideDescription || tool.description}
-                              </p>
-                              {tool.overrideDescription && tool.description && (
-                                <p className="text-xs text-muted-foreground/70 line-clamp-1 break-words">
-                                  Original: {tool.description}
-                                </p>
+                            <PenSquare className="h-3 w-3" />
+                            {t("namespaces:enhancedToolsTable.overridesBadge")}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          {t("namespaces:enhancedToolsTable.overridesTooltip")}
+                        </TooltipContent>
+                      </Tooltip>,
+                    );
+                  }
+
+                  if (hasAnnotationOverrides) {
+                    indicatorBadges.push(
+                      <Tooltip key="annotation-indicator">
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="bg-muted/30 text-muted-foreground border-muted/40 px-2 py-0.5 cursor-default"
+                          >
+                            <Braces className="h-3 w-3" />
+                            {t(
+                              "namespaces:enhancedToolsTable.annotationsBadge",
+                            )}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          {t(
+                            "namespaces:enhancedToolsTable.annotationsTooltip",
+                          )}
+                        </TooltipContent>
+                      </Tooltip>,
+                    );
+                  }
+
+                  return (
+                    <React.Fragment key={toolId}>
+                      {/* Main row */}
+                      <TableRow className="group">
+                        <TableCell className="w-[40px]">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => toggleRowExpansion(toolId)}
+                          >
+                            {isExpanded ? (
+                              <EyeOff className="h-3 w-3" />
+                            ) : (
+                              <Eye className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </TableCell>
+                        <TableCell className="font-medium min-w-[150px] w-[200px]">
+                          <div className="flex items-start gap-3">
+                            <Wrench className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <span className="truncate font-medium">
+                                {tool.overrideName || tool.name}
+                              </span>
+                              {hasNameOverride && (
+                                <span className="text-xs text-muted-foreground truncate">
+                                  Original name: {tool.name}
+                                </span>
                               )}
+                              {displayTitle && (
+                                <span className="text-xs text-muted-foreground truncate">
+                                  Title: {displayTitle}
+                                </span>
+                              )}
+                              {hasTitleOverride && (
+                                <span className="text-[10px] text-muted-foreground truncate">
+                                  Original title: {originalTitle || "—"}
+                                </span>
+                              )}
+                            </div>
+                            {indicatorBadges.length > 0 && (
+                              <div className="flex flex-col gap-1 flex-shrink-0 min-w-[110px]">
+                                {indicatorBadges}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="min-w-[120px] w-[150px]">
+                          {tool.serverName && tool.serverUuid ? (
+                            <Link
+                              href={`/mcp-servers/${tool.serverUuid}`}
+                              className="flex items-center gap-2 hover:underline"
+                            >
+                              <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="font-medium truncate">
+                                {tool.serverName}
+                              </span>
+                            </Link>
+                          ) : tool.serverName ? (
+                            <div className="flex items-center gap-2">
+                              <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="font-medium truncate">
+                                {tool.serverName}
+                              </span>
                             </div>
                           ) : (
                             <span className="text-sm text-muted-foreground italic">
-                              {t("namespaces:enhancedToolsTable.noDescription")}
+                              {t("namespaces:enhancedToolsTable.unknownServer")}
                             </span>
                           )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="w-[100px]">
-                        {getSourceBadge(tool)}
-                      </TableCell>
-                      <TableCell className="w-[130px]">
-                        {tool.updated_at ? (
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                            <span className="text-xs text-muted-foreground truncate">
-                              {formatDate(tool.updated_at)}
+                        </TableCell>
+                        <TableCell className="w-[80px]">
+                          {tool.sources.saved ? (
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={tool.status === "ACTIVE"}
+                                onCheckedChange={() => handleStatusToggle(tool)}
+                                disabled={isToggling}
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              -
                             </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground italic">
-                            -
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="w-[40px]">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                            >
-                              <MoreHorizontal className="h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => toggleRowExpansion(toolId)}
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <EyeOff className="mr-2 h-4 w-4" />
-                                  {t(
-                                    "namespaces:enhancedToolsTable.hideDetails",
+                          )}
+                        </TableCell>
+                        <TableCell className="min-w-[200px] max-w-[300px]">
+                          <div className="w-full">
+                            {tool.overrideDescription || tool.description ? (
+                              <div className="flex flex-col gap-1">
+                                <p className="text-sm text-muted-foreground line-clamp-2 break-words">
+                                  {tool.overrideDescription || tool.description}
+                                </p>
+                                {tool.overrideDescription &&
+                                  tool.description && (
+                                    <p className="text-xs text-muted-foreground/70 line-clamp-1 break-words">
+                                      Original: {tool.description}
+                                    </p>
                                   )}
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  {t(
-                                    "namespaces:enhancedToolsTable.showDetails",
-                                  )}
-                                </>
-                              )}
-                            </DropdownMenuItem>
-                            {tool.sources.saved && (
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  startEditingOverrides(toolId, tool)
-                                }
-                                disabled={editingOverrides.has(toolId)}
-                              >
-                                <Edit3 className="mr-2 h-4 w-4" />
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground italic">
                                 {t(
-                                  "namespaces:enhancedToolsTable.editOverrides",
+                                  "namespaces:enhancedToolsTable.noDescription",
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-[100px]">
+                          {getSourceBadge(tool)}
+                        </TableCell>
+                        <TableCell className="w-[130px]">
+                          {tool.updated_at ? (
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                              <span className="text-xs text-muted-foreground truncate">
+                                {formatDate(tool.updated_at)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              -
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="w-[40px]">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                              >
+                                <MoreHorizontal className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => toggleRowExpansion(toolId)}
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <EyeOff className="mr-2 h-4 w-4" />
+                                    {t(
+                                      "namespaces:enhancedToolsTable.hideDetails",
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="mr-2 h-4 w-4" />
+                                    {t(
+                                      "namespaces:enhancedToolsTable.showDetails",
+                                    )}
+                                  </>
                                 )}
                               </DropdownMenuItem>
-                            )}
-                            {tool.serverUuid && (
-                              <DropdownMenuItem asChild>
-                                <Link href={`/mcp-servers/${tool.serverUuid}`}>
-                                  <Server className="mr-2 h-4 w-4" />
+                              {tool.sources.saved && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    startEditingOverrides(toolId, tool)
+                                  }
+                                  disabled={editingOverrides.has(toolId)}
+                                >
+                                  <Edit3 className="mr-2 h-4 w-4" />
                                   {t(
-                                    "namespaces:enhancedToolsTable.viewServer",
+                                    "namespaces:enhancedToolsTable.editOverrides",
                                   )}
-                                </Link>
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+                                </DropdownMenuItem>
+                              )}
+                              {tool.serverUuid && (
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/mcp-servers/${tool.serverUuid}`}
+                                  >
+                                    <Server className="mr-2 h-4 w-4" />
+                                    {t(
+                                      "namespaces:enhancedToolsTable.viewServer",
+                                    )}
+                                  </Link>
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
 
-                    {/* Expanded details row */}
-                    {isExpanded && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="bg-muted/50">
-                          <div className="py-4 space-y-4">
-                            {/* Tool Override Editing */}
-                            {editingOverrides.has(toolId) &&
-                              tool.sources.saved && (
-                                <div className="mb-4 p-4 border rounded-lg bg-muted/20">
-                                  <h5 className="text-sm font-medium mb-3">
-                                    Edit Tool Overrides
-                                  </h5>
-                                  <div className="space-y-3">
-                                    <div>
-                                      <label className="text-xs font-medium text-muted-foreground">
-                                        Tool Name
-                                      </label>
-                                      <Input
-                                        value={
-                                          tempOverrides.get(toolId)?.name || ""
-                                        }
-                                        onChange={(e) =>
-                                          updateTempOverride(
-                                            toolId,
-                                            "name",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder="Enter custom tool name"
-                                        className="mt-1"
-                                      />
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        Original: {tool.name}
-                                      </p>
-                                    </div>
-                                    <div>
-                                      <label className="text-xs font-medium text-muted-foreground">
-                                        Tool Title
-                                      </label>
-                                      <Input
-                                        value={
-                                          tempOverrides.get(toolId)?.title || ""
-                                        }
-                                        onChange={(e) =>
-                                          updateTempOverride(
-                                            toolId,
-                                            "title",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder="Enter custom tool title"
-                                        className="mt-1"
-                                      />
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        Original:{" "}
-                                        {tool.title || tool.name || "N/A"}
-                                      </p>
-                                    </div>
-                                    <div>
-                                      <label className="text-xs font-medium text-muted-foreground">
-                                        Tool Description
-                                      </label>
-                                      <Textarea
-                                        value={
-                                          tempOverrides.get(toolId)
-                                            ?.description || ""
-                                        }
-                                        onChange={(e) =>
-                                          updateTempOverride(
-                                            toolId,
-                                            "description",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder="Enter custom tool description"
-                                        className="mt-1 min-h-[60px] max-h-[120px] resize-none"
-                                        rows={3}
-                                      />
-                                      {/* <p className="text-xs text-muted-foreground mt-1">
+                      {/* Expanded details row */}
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="bg-muted/50">
+                            <div className="py-4 space-y-4">
+                              {/* Tool Override Editing */}
+                              {editingOverrides.has(toolId) &&
+                                tool.sources.saved && (
+                                  <div className="mb-4 p-4 border rounded-lg bg-muted/20">
+                                    <h5 className="text-sm font-medium mb-3">
+                                      Edit Tool Overrides
+                                    </h5>
+                                    <div className="space-y-3">
+                                      <div>
+                                        <label className="text-xs font-medium text-muted-foreground">
+                                          Tool Name
+                                        </label>
+                                        <Input
+                                          value={
+                                            tempOverrides.get(toolId)?.name ||
+                                            ""
+                                          }
+                                          onChange={(e) =>
+                                            updateTempOverride(
+                                              toolId,
+                                              "name",
+                                              e.target.value,
+                                            )
+                                          }
+                                          placeholder="Enter custom tool name"
+                                          className="mt-1"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          Original: {tool.name}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-medium text-muted-foreground">
+                                          Tool Title
+                                        </label>
+                                        <Input
+                                          value={
+                                            tempOverrides.get(toolId)?.title ||
+                                            ""
+                                          }
+                                          onChange={(e) =>
+                                            updateTempOverride(
+                                              toolId,
+                                              "title",
+                                              e.target.value,
+                                            )
+                                          }
+                                          placeholder="Enter custom tool title"
+                                          className="mt-1"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          Original:{" "}
+                                          {tool.title || tool.name || "N/A"}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-medium text-muted-foreground">
+                                          Tool Description
+                                        </label>
+                                        <Textarea
+                                          value={
+                                            tempOverrides.get(toolId)
+                                              ?.description || ""
+                                          }
+                                          onChange={(e) =>
+                                            updateTempOverride(
+                                              toolId,
+                                              "description",
+                                              e.target.value,
+                                            )
+                                          }
+                                          placeholder="Enter custom tool description"
+                                          className="mt-1 min-h-[60px] max-h-[120px] resize-none"
+                                          rows={3}
+                                        />
+                                        {/* <p className="text-xs text-muted-foreground mt-1">
                                         Original:{" "}
                                         {tool.description || "No description"}
                                       </p> */}
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-medium text-muted-foreground">
+                                          {t(
+                                            "namespaces:enhancedToolsTable.annotationsLabel",
+                                          )}
+                                        </label>
+                                        <Textarea
+                                          value={
+                                            tempOverrides.get(toolId)
+                                              ?.annotations || ""
+                                          }
+                                          onChange={(e) =>
+                                            updateTempOverride(
+                                              toolId,
+                                              "annotations",
+                                              e.target.value,
+                                            )
+                                          }
+                                          placeholder={t(
+                                            "namespaces:enhancedToolsTable.annotationsPlaceholder",
+                                          )}
+                                          className="mt-1 font-mono text-xs min-h-[80px] max-h-[160px]"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          {t(
+                                            "namespaces:enhancedToolsTable.annotationsHelper",
+                                          )}
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          size="sm"
+                                          onClick={() =>
+                                            saveOverrides(toolId, tool)
+                                          }
+                                          disabled={
+                                            updateToolOverridesMutation.isPending
+                                          }
+                                        >
+                                          <Check className="h-3 w-3 mr-1" />
+                                          Save
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            cancelEditingOverrides(toolId)
+                                          }
+                                        >
+                                          <X className="h-3 w-3 mr-1" />
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => {
+                                            updateTempOverride(
+                                              toolId,
+                                              "name",
+                                              tool.name || "",
+                                            );
+                                            updateTempOverride(
+                                              toolId,
+                                              "title",
+                                              tool.title || tool.name || "",
+                                            );
+                                            updateTempOverride(
+                                              toolId,
+                                              "description",
+                                              tool.description || "",
+                                            );
+                                            updateTempOverride(
+                                              toolId,
+                                              "annotations",
+                                              formatAnnotations(
+                                                tool.annotations,
+                                              ),
+                                            );
+                                          }}
+                                        >
+                                          <RotateCcw className="h-3 w-3 mr-1" />
+                                          Reset to Original
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <label className="text-xs font-medium text-muted-foreground">
-                                        {t(
-                                          "namespaces:enhancedToolsTable.annotationsLabel",
-                                        )}
-                                      </label>
-                                      <Textarea
-                                        value={
-                                          tempOverrides.get(toolId)
-                                            ?.annotations || ""
-                                        }
-                                        onChange={(e) =>
-                                          updateTempOverride(
-                                            toolId,
-                                            "annotations",
-                                            e.target.value,
+                                  </div>
+                                )}
+
+                              {/* Tool Info */}
+                              <div className="flex items-center gap-4">
+                                {tool.uuid && (
+                                  <div className="flex items-center gap-2">
+                                    <Hash className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">
+                                      {t(
+                                        "namespaces:enhancedToolsTable.toolInfo.uuid",
+                                      )}
+                                      :
+                                    </span>
+                                    <code className="text-sm bg-background px-2 py-1 rounded border">
+                                      {tool.uuid}
+                                    </code>
+                                  </div>
+                                )}
+                                {tool.serverName && (
+                                  <div className="flex items-center gap-2">
+                                    <Server className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">
+                                      {t(
+                                        "namespaces:enhancedToolsTable.toolInfo.server",
+                                      )}
+                                      :
+                                    </span>
+                                    {tool.serverUuid ? (
+                                      <Link
+                                        href={`/mcp-servers/${tool.serverUuid}`}
+                                        className="text-sm text-blue-600 hover:underline"
+                                      >
+                                        {tool.serverName}
+                                      </Link>
+                                    ) : (
+                                      <span className="text-sm">
+                                        {tool.serverName}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium">
+                                    {t(
+                                      "namespaces:enhancedToolsTable.toolInfo.source",
+                                    )}
+                                    :
+                                  </span>
+                                  {getSourceBadge(tool)}
+                                </div>
+                                {tool.status && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium">
+                                      {t(
+                                        "namespaces:enhancedToolsTable.toolInfo.status",
+                                      )}
+                                      :
+                                    </span>
+                                    <span
+                                      className={`text-xs font-medium ${
+                                        tool.status === "ACTIVE"
+                                          ? "text-green-600"
+                                          : "text-gray-500"
+                                      }`}
+                                    >
+                                      {tool.status === "ACTIVE"
+                                        ? t(
+                                            "namespaces:enhancedToolsTable.active",
                                           )
-                                        }
-                                        placeholder={t(
-                                          "namespaces:enhancedToolsTable.annotationsPlaceholder",
-                                        )}
-                                        className="mt-1 font-mono text-xs min-h-[80px] max-h-[160px]"
-                                      />
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        {t(
-                                          "namespaces:enhancedToolsTable.annotationsHelper",
-                                        )}
-                                      </p>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <Button
-                                        size="sm"
-                                        onClick={() =>
-                                          saveOverrides(toolId, tool)
-                                        }
-                                        disabled={
-                                          updateToolOverridesMutation.isPending
-                                        }
-                                      >
-                                        <Check className="h-3 w-3 mr-1" />
-                                        Save
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                          cancelEditingOverrides(toolId)
-                                        }
-                                      >
-                                        <X className="h-3 w-3 mr-1" />
-                                        Cancel
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => {
-                                          updateTempOverride(
-                                            toolId,
-                                            "name",
-                                            tool.name || "",
-                                          );
-                                          updateTempOverride(
-                                            toolId,
-                                            "title",
-                                            tool.title || tool.name || "",
-                                          );
-                                          updateTempOverride(
-                                            toolId,
-                                            "description",
-                                            tool.description || "",
-                                          );
-                                          updateTempOverride(
-                                            toolId,
-                                            "annotations",
-                                            formatAnnotations(tool.annotations),
-                                          );
-                                        }}
-                                      >
-                                        <RotateCcw className="h-3 w-3 mr-1" />
-                                        Reset to Original
-                                      </Button>
-                                    </div>
+                                        : t(
+                                            "namespaces:enhancedToolsTable.inactive",
+                                          )}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Tool Description */}
+                              {tool.description && (
+                                <div>
+                                  <h5 className="text-sm font-medium mb-2">
+                                    {t(
+                                      "namespaces:enhancedToolsTable.toolDescription",
+                                    )}
+                                  </h5>
+                                  <div className="bg-background p-3 rounded border">
+                                    <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap overflow-wrap-anywhere">
+                                      {tool.description}
+                                    </p>
                                   </div>
                                 </div>
                               )}
 
-                            {/* Tool Info */}
-                            <div className="flex items-center gap-4">
-                              {tool.uuid && (
-                                <div className="flex items-center gap-2">
-                                  <Hash className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium">
-                                    {t(
-                                      "namespaces:enhancedToolsTable.toolInfo.uuid",
-                                    )}
-                                    :
-                                  </span>
-                                  <code className="text-sm bg-background px-2 py-1 rounded border">
-                                    {tool.uuid}
-                                  </code>
-                                </div>
-                              )}
-                              {tool.serverName && (
-                                <div className="flex items-center gap-2">
-                                  <Server className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium">
-                                    {t(
-                                      "namespaces:enhancedToolsTable.toolInfo.server",
-                                    )}
-                                    :
-                                  </span>
-                                  {tool.serverUuid ? (
-                                    <Link
-                                      href={`/mcp-servers/${tool.serverUuid}`}
-                                      className="text-sm text-blue-600 hover:underline"
-                                    >
-                                      {tool.serverName}
-                                    </Link>
-                                  ) : (
-                                    <span className="text-sm">
-                                      {tool.serverName}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">
-                                  {t(
-                                    "namespaces:enhancedToolsTable.toolInfo.source",
-                                  )}
-                                  :
-                                </span>
-                                {getSourceBadge(tool)}
-                              </div>
-                              {tool.status && (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium">
-                                    {t(
-                                      "namespaces:enhancedToolsTable.toolInfo.status",
-                                    )}
-                                    :
-                                  </span>
-                                  <span
-                                    className={`text-xs font-medium ${
-                                      tool.status === "ACTIVE"
-                                        ? "text-green-600"
-                                        : "text-gray-500"
-                                    }`}
-                                  >
-                                    {tool.status === "ACTIVE"
-                                      ? t(
-                                          "namespaces:enhancedToolsTable.active",
-                                        )
-                                      : t(
-                                          "namespaces:enhancedToolsTable.inactive",
-                                        )}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
+                              {tool.overrideAnnotations &&
+                                Object.keys(tool.overrideAnnotations).length >
+                                  0 && (
+                                  <div className="p-4 border rounded-lg">
+                                    <h5 className="text-sm font-medium mb-2">
+                                      {t(
+                                        "namespaces:enhancedToolsTable.annotationsPreview",
+                                      )}
+                                    </h5>
+                                    <CodeBlock language="json">
+                                      {JSON.stringify(
+                                        tool.overrideAnnotations,
+                                        null,
+                                        2,
+                                      )}
+                                    </CodeBlock>
+                                  </div>
+                                )}
 
-                            {/* Tool Description */}
-                            {tool.description && (
+                              {/* Tool Schema */}
                               <div>
                                 <h5 className="text-sm font-medium mb-2">
                                   {t(
-                                    "namespaces:enhancedToolsTable.toolDescription",
+                                    "namespaces:enhancedToolsTable.toolSchema",
                                   )}
                                 </h5>
                                 <div className="bg-background p-3 rounded border">
-                                  <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap overflow-wrap-anywhere">
-                                    {tool.description}
-                                  </p>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xs font-medium">
+                                      {t("namespaces:enhancedToolsTable.type")}:
+                                    </span>
+                                    <code className="text-xs bg-muted px-2 py-1 rounded">
+                                      {String(
+                                        tool.toolSchema?.type ||
+                                          tool.inputSchema?.type ||
+                                          "object",
+                                      )}
+                                    </code>
+                                  </div>
+
+                                  {parameters.length > 0 && (
+                                    <div>
+                                      <span className="text-xs font-medium">
+                                        {t(
+                                          "namespaces:enhancedToolsTable.parameters",
+                                        )}
+                                        :
+                                      </span>
+                                      <div className="mt-2 space-y-2">
+                                        {parameters.map((param, index) => (
+                                          <div
+                                            key={index}
+                                            className="flex items-center gap-2 text-xs"
+                                          >
+                                            <div className="flex items-center gap-1">
+                                              <code className="bg-muted px-2 py-1 rounded font-mono">
+                                                {param.name}
+                                              </code>
+                                              <span className="text-muted-foreground">
+                                                ({param.type})
+                                              </span>
+                                              {param.required && (
+                                                <span className="text-red-500 text-xs font-bold">
+                                                  *
+                                                </span>
+                                              )}
+                                            </div>
+                                            {param.description && (
+                                              <span className="text-muted-foreground">
+                                                - {param.description}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                            )}
 
-                            {tool.overrideAnnotations &&
-                              Object.keys(tool.overrideAnnotations).length >
-                                0 && (
-                                <div className="p-4 border rounded-lg">
-                                  <h5 className="text-sm font-medium mb-2">
-                                    {t(
-                                      "namespaces:enhancedToolsTable.annotationsPreview",
-                                    )}
-                                  </h5>
-                                  <CodeBlock language="json">
+                              {/* Full Schema JSON (for debugging) */}
+                              <details className="text-xs">
+                                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                                  {t(
+                                    "namespaces:enhancedToolsTable.showFullSchemaJson",
+                                  )}
+                                </summary>
+                                <div className="mt-2">
+                                  <CodeBlock
+                                    language="json"
+                                    maxHeight="300px"
+                                    className="text-xs"
+                                  >
                                     {JSON.stringify(
-                                      tool.overrideAnnotations,
+                                      tool.toolSchema || tool.inputSchema,
                                       null,
                                       2,
                                     )}
                                   </CodeBlock>
                                 </div>
-                              )}
-
-                            {/* Tool Schema */}
-                            <div>
-                              <h5 className="text-sm font-medium mb-2">
-                                {t("namespaces:enhancedToolsTable.toolSchema")}
-                              </h5>
-                              <div className="bg-background p-3 rounded border">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className="text-xs font-medium">
-                                    {t("namespaces:enhancedToolsTable.type")}:
-                                  </span>
-                                  <code className="text-xs bg-muted px-2 py-1 rounded">
-                                    {String(
-                                      tool.toolSchema?.type ||
-                                        tool.inputSchema?.type ||
-                                        "object",
-                                    )}
-                                  </code>
-                                </div>
-
-                                {parameters.length > 0 && (
-                                  <div>
-                                    <span className="text-xs font-medium">
-                                      {t(
-                                        "namespaces:enhancedToolsTable.parameters",
-                                      )}
-                                      :
-                                    </span>
-                                    <div className="mt-2 space-y-2">
-                                      {parameters.map((param, index) => (
-                                        <div
-                                          key={index}
-                                          className="flex items-center gap-2 text-xs"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            <code className="bg-muted px-2 py-1 rounded font-mono">
-                                              {param.name}
-                                            </code>
-                                            <span className="text-muted-foreground">
-                                              ({param.type})
-                                            </span>
-                                            {param.required && (
-                                              <span className="text-red-500 text-xs font-bold">
-                                                *
-                                              </span>
-                                            )}
-                                          </div>
-                                          {param.description && (
-                                            <span className="text-muted-foreground">
-                                              - {param.description}
-                                            </span>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                              </details>
                             </div>
-
-                            {/* Full Schema JSON (for debugging) */}
-                            <details className="text-xs">
-                              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                                {t(
-                                  "namespaces:enhancedToolsTable.showFullSchemaJson",
-                                )}
-                              </summary>
-                              <div className="mt-2">
-                                <CodeBlock
-                                  language="json"
-                                  maxHeight="300px"
-                                  className="text-xs"
-                                >
-                                  {JSON.stringify(
-                                    tool.toolSchema || tool.inputSchema,
-                                    null,
-                                    2,
-                                  )}
-                                </CodeBlock>
-                              </div>
-                            </details>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          {pageCount > 1 && (
+            <Tabs
+              value={String(visiblePage)}
+              onValueChange={(value) => setCurrentPage(Number(value))}
+            >
+              <TabsList className="h-auto max-w-full justify-start overflow-x-auto">
+                {Array.from({ length: pageCount }, (_, index) => {
+                  const page = index + 1;
+                  return (
+                    <TabsTrigger key={page} value={String(page)}>
+                      {t("namespaces:enhancedToolsTable.pageTab", { page })}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          )}
+        </>
       )}
     </div>
   );

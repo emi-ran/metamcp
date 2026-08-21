@@ -101,6 +101,13 @@
     "source": "Source",
     "updatedAt": "Updated At",
     "searchTools": "Search tools...",
+    "filterStatus": "Filter status",
+    "statusFilter": {
+      "all": "All",
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "pageTab": "Page {{page}}",
     "toolsCount": "{{count}} of {{total}} tools",
     "noToolsFound": "No tools found from MetaMCP or saved to namespace",
     "noToolsMatch": "No tools match your search",

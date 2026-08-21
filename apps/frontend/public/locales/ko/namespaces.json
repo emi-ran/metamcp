@@ -101,6 +101,13 @@
     "source": "소스",
     "updatedAt": "업데이트 일시",
     "searchTools": "Tool 검색...",
+    "filterStatus": "상태 필터",
+    "statusFilter": {
+      "all": "전체",
+      "active": "활성",
+      "inactive": "비활성"
+    },
+    "pageTab": "{{page}} 페이지",
     "toolsCount": "{{total}}개 중 {{count}}개 Tool",
     "noToolsFound": "MetaMCP에서 찾았거나 Namespace에 저장된 Tool이 없습니다",
     "noToolsMatch": "검색 조건과 일치하는 Tool이 없습니다",
