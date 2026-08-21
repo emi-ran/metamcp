@@ -125,14 +125,16 @@ function extractAuthToken(
   source: "x-api-key" | "authorization" | "query" | "none";
   isOAuthLikeToken: boolean;
 } {
-  // Check for API key in X-API-Key header
-  const apiKeyHeader = req.headers["x-api-key"] as string;
-  if (apiKeyHeader) {
-    return {
-      token: apiKeyHeader,
-      source: "x-api-key",
-      isOAuthLikeToken: false,
-    };
+  // Check for API key in X-API-Key header (only when API key auth is enabled)
+  if (endpoint?.enable_api_key_auth) {
+    const apiKeyHeader = req.headers["x-api-key"] as string;
+    if (apiKeyHeader) {
+      return {
+        token: apiKeyHeader,
+        source: "x-api-key",
+        isOAuthLikeToken: false,
+      };
+    }
   }
 
   // Check Authorization header (Bearer token)
@@ -147,7 +149,7 @@ function extractAuthToken(
   }
 
   // Check query parameters for API key (if enabled)
-  if (endpoint.enable_api_key_auth && endpoint.use_query_param_auth) {
+  if (endpoint?.enable_api_key_auth && endpoint?.use_query_param_auth) {
     const queryApiKey =
       (req.query.api_key as string) || (req.query.apikey as string);
     if (queryApiKey) {
