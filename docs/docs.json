@@ -64,6 +64,7 @@
           {
             "group": "Integrations",
             "pages": [
+              "en/integrations/google-workspace",
               "en/integrations/cursor",
               "en/integrations/claude-desktop",
               "en/integrations/open-web-ui",
@@ -117,6 +118,7 @@
           {
             "group": "集成",
             "pages": [
+              "cn/integrations/google-workspace",
               "cn/integrations/cursor",
               "cn/integrations/claude-desktop",
               "cn/integrations/open-web-ui",

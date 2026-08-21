@@ -1,0 +1,193 @@
+---
+title: "Google Workspace & OAuth MCP Integration"
+description: "Configure Google Cloud Web OAuth client, token encryption, minimum scopes, namespace permissions, and remote client connections for Google Workspace MCP"
+---
+
+MetaMCP provides built-in Google Workspace integration with least-privilege OAuth 2.0 PKCE authentication. It exposes Gmail, Google Calendar, Google Drive, Google Docs, and Google Sheets tools as a native MCP server (`GoogleWorkspace`) within namespaces and endpoints.
+
+<Note>
+**No Admin SDK or Domain-Wide Delegation**: MetaMCP uses user-level OAuth 2.0 delegation with PKCE. It does **not** use Google Workspace Admin SDK, Service Accounts, or Domain-Wide Delegation. Each user connects their own Google account.
+</Note>
+
+## 1. Google Cloud Project Setup
+
+### 1.1 Create GCP Project & Enable APIs
+1. Open [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new Google Cloud Project or select an existing project.
+3. Go to **APIs & Services** > **Library** and enable the following 5 APIs:
+   - **Gmail API**
+   - **Google Calendar API**
+   - **Google Drive API**
+   - **Google Docs API**
+   - **Google Sheets API**
+
+### 1.2 Configure OAuth Consent Screen
+1. Go to **APIs & Services** > **OAuth consent screen**.
+2. Select **User Type**:
+   - **Internal**: Recommended for Google Workspace organizations (no external verification required).
+   - **External**: Set Publishing status to **Testing** and add authorized test users in the **Test users** section.
+3. Fill in required application metadata (App name, User support email, Developer contact info).
+4. In the **Scopes** step, add the minimum scopes required for your planned operations (see [Minimum Scopes Table](#3-exact-minimum-scopes-table)).
+
+### 1.3 Create OAuth 2.0 Web Client Credentials
+1. Go to **APIs & Services** > **Credentials**.
+2. Click **Create Credentials** > **OAuth client ID**.
+3. Set **Application type** to **Web application**.
+4. Set **Name** (e.g., `MetaMCP Google Integration`).
+5. Under **Authorized redirect URIs**, enter your public callback URL:
+   ```text
+   https://<your-metamcp-domain>/integrations/google/callback
+   ```
+   *(For local development: `http://localhost:12008/integrations/google/callback`)*
+6. Click **Create** and copy the generated **Client ID** and **Client Secret**.
+
+## 2. Environment Variables & Token Encryption
+
+Configure the following environment variables in your `.env` or deployment environment:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `APP_URL` | Yes | Public base URL of your MetaMCP instance (e.g. `https://mcp.example.com` or `http://localhost:12008`). Used to build the public OAuth callback URI. |
+| `GOOGLE_CLIENT_ID` | Yes | OAuth 2.0 Web Client ID from Google Cloud Console. |
+| `GOOGLE_CLIENT_SECRET` | Yes | OAuth 2.0 Web Client Secret from Google Cloud Console. |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | Conditional | 32-byte string or 64-character hex string for AES-256-GCM token encryption. Used when versioned map is not configured. |
+| `GOOGLE_TOKEN_ENCRYPTION_KEYS` | Optional | JSON string map of version numbers to keys for seamless key rotation, e.g. `{"1":"key1_hex","2":"key2_hex"}`. |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION` | Optional | Integer string specifying active key version for new encryptions when using `GOOGLE_TOKEN_ENCRYPTION_KEYS` (e.g. `"2"`). |
+
+### Token Encryption & Key Rotation Behavior
+- User tokens are encrypted at rest using **AES-256-GCM** with a unique 12-byte IV and authentication tag per entry.
+- **Single Key**: Provide `GOOGLE_TOKEN_ENCRYPTION_KEY` (32 bytes or 64 hex characters). Key version defaults to `1`.
+- **Key Rotation**: Provide `GOOGLE_TOKEN_ENCRYPTION_KEYS` with all active/previous keys and set `GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION` to the newest version. Existing tokens decrypt using their stored payload version without downtime.
+
+```bash .env
+APP_URL=https://mcp.example.com
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+## 3. Exact Minimum Scopes Table
+
+MetaMCP enforces least-privilege scoping. Read tools work with read-only scopes. Write and delete operations require explicit re-consent.
+
+| Service | Tool Name | Tool Type | Required OAuth Scope | Re-Consent Required |
+| --- | --- | --- | --- | --- |
+| **Gmail** | `gmail_search` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
+| **Gmail** | `gmail_get_message` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
+| **Gmail** | `gmail_get_thread` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
+| **Gmail** | `gmail_list_labels` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
+| **Gmail** | `gmail_download_attachment` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No |
+| **Calendar** | `calendar_list_calendars` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
+| **Calendar** | `calendar_list_events` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
+| **Calendar** | `calendar_get_event` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
+| **Calendar** | `calendar_freebusy` | Read | `https://www.googleapis.com/auth/calendar.readonly` | No |
+| **Calendar** | `calendar_create_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes |
+| **Calendar** | `calendar_update_event` | Write | `https://www.googleapis.com/auth/calendar.events` | Yes |
+| **Calendar** | `calendar_delete_event` | Write / Destructive | `https://www.googleapis.com/auth/calendar.events` | Yes |
+| **Drive** | `drive_search` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
+| **Drive** | `drive_get_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
+| **Drive** | `drive_list_folder` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
+| **Drive** | `drive_download_file` | Read | `https://www.googleapis.com/auth/drive.readonly` | No |
+| **Drive** | `drive_upload_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
+| **Drive** | `drive_create_folder` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
+| **Drive** | `drive_share_file` | Write | `https://www.googleapis.com/auth/drive.file` | Yes |
+| **Drive** | `drive_delete_file` | Write / Destructive | `https://www.googleapis.com/auth/drive.file` | Yes |
+| **Docs** | `docs_get` | Read | `https://www.googleapis.com/auth/documents.readonly` | No |
+| **Docs** | `docs_create` | Write | `https://www.googleapis.com/auth/documents` | Yes |
+| **Docs** | `docs_append` | Write | `https://www.googleapis.com/auth/documents` | Yes |
+| **Docs** | `docs_replace_text` | Write | `https://www.googleapis.com/auth/documents` | Yes |
+| **Sheets** | `sheets_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | No |
+| **Sheets** | `sheets_batch_get` | Read | `https://www.googleapis.com/auth/spreadsheets.readonly` | No |
+| **Sheets** | `sheets_update` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
+| **Sheets** | `sheets_append` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
+| **Sheets** | `sheets_create` | Write | `https://www.googleapis.com/auth/spreadsheets` | Yes |
+
+<Info>
+Default base scopes for initial connect: `openid`, `email`, `profile`, `gmail.readonly`.
+</Info>
+
+## 4. Namespace Security & Default Inactive Tools
+
+To protect against unintentional tool exposure:
+- **Default Inactive**: All tools provided by the `GoogleWorkspace` server are set to **`INACTIVE`** by default when provisioned or added to a namespace.
+- **Explicit Activation**: You must explicitly enable each tool in your namespace tool settings.
+- **Prefix Isolation**: All Google Workspace tools appear under the namespace prefix `GoogleWorkspace__<tool_name>` (e.g., `GoogleWorkspace__gmail_search`).
+- **User-Scoped Execution**: Tools execute using the authenticated user's stored Google OAuth token. Unconnected users receive `GoogleWorkspaceError("NOT_CONNECTED")`.
+
+## 5. Client Connection Guide
+
+### Option A: ChatGPT (OAuth-only Remote MCP)
+ChatGPT Custom Actions and remote MCP connections require OAuth authentication:
+1. In MetaMCP, navigate to **Endpoints** and select or create an endpoint pointing to your Google Workspace namespace.
+2. In endpoint settings, ensure:
+   - **API Key Auth**: Disabled (or OAuth enabled).
+   - **OAuth Auth**: **Enabled**.
+3. Copy the endpoint URL:
+   ```text
+   https://<your-metamcp-domain>/metamcp/<endpoint-name>/mcp
+   ```
+4. In ChatGPT (or Custom GPT Action / MCP Connector):
+   - Set Authentication to **OAuth**.
+   - ChatGPT discovers authorization and token endpoints automatically via `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`.
+   - Complete the OAuth authorization flow in the browser when prompted.
+
+### Option B: Hermes / OpenCode / Agent CLI (API Key or OAuth)
+
+#### 1. API Key Authentication (Streamable HTTP / STDIO Proxy)
+Configure the client with an HTTP Bearer header or MetaMCP API key header:
+
+```json
+{
+  "mcpServers": {
+    "MetaMCP-Google": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-proxy",
+        "https://<your-metamcp-domain>/metamcp/<endpoint-name>/mcp"
+      ],
+      "env": {
+        "METAMCP_API_KEY": "your-metamcp-api-key"
+      }
+    }
+  }
+}
+```
+
+#### 2. OAuth Authentication via `mcp-remote`
+Use `mcp-remote` for local stdio clients to complete the browser OAuth handshake:
+
+```json
+{
+  "mcpServers": {
+    "MetaMCP-Google": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://<your-metamcp-domain>/metamcp/<endpoint-name>/mcp"
+      ]
+    }
+  }
+}
+```
+
+## 6. Disconnect & Revoke
+
+Users can revoke access at any time:
+1. Navigate to **Settings** > **Google Workspace** in the MetaMCP UI.
+2. Click **Disconnect Google Workspace**.
+3. **Execution details**:
+   - MetaMCP calls `https://oauth2.googleapis.com/revoke` to revoke upstream refresh and access tokens.
+   - Encrypted token records are deleted from the database.
+   - Any ongoing or future Google Workspace tool calls for that user immediately fail until reconnected.
+
+## 7. Production Checklist
+
+- [ ] **Public URL**: `APP_URL` configured with valid HTTPS hostname and no trailing slash.
+- [ ] **Google Console Redirect URI**: Exact match for `https://<your-domain>/integrations/google/callback`.
+- [ ] **GCP APIs Enabled**: Gmail, Calendar, Drive, Docs, and Sheets APIs enabled in project.
+- [ ] **Consent Screen Status**: Internal (for Workspace domain) or External with all test users added.
+- [ ] **Encryption Key**: 32-byte key set in `GOOGLE_TOKEN_ENCRYPTION_KEY` (or versioned map in `GOOGLE_TOKEN_ENCRYPTION_KEYS`).
+- [ ] **Namespace Tools**: Individual Google Workspace tools activated as needed (inactive by default).
+- [ ] **Audit Logging**: Request audit logging enabled to track Google Workspace tool invocations.
