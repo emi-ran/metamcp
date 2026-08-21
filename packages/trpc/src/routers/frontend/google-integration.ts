@@ -1,8 +1,8 @@
 import {
-  GoogleConnectUrlResponse,
-  GoogleConnectUrlResponseSchema,
   GoogleConnectionStatusResponse,
   GoogleConnectionStatusResponseSchema,
+  GoogleConnectUrlResponse,
+  GoogleConnectUrlResponseSchema,
   GoogleDisconnectResponse,
   GoogleDisconnectResponseSchema,
   GoogleReconnectRequest,
