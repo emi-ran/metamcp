@@ -49,7 +49,16 @@ function parseWorkspaceScopes(value: unknown): GoogleWorkspaceScope[] {
   if (
     !Array.isArray(value) ||
     value.some(
-      (scope) => scope !== "calendar.events" && scope !== "gmail.compose",
+      (scope) =>
+        scope !== "calendar.readonly" &&
+        scope !== "calendar.events" &&
+        scope !== "drive.readonly" &&
+        scope !== "gmail.compose" &&
+        scope !== "drive.file" &&
+        scope !== "docs.readonly" &&
+        scope !== "docs.write" &&
+        scope !== "sheets.readonly" &&
+        scope !== "sheets.write",
     )
   ) {
     throw oauthError("Invalid requested Google workspace scopes");

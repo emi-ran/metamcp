@@ -60,6 +60,14 @@ import { isBackendSessionLostError } from "./session-error";
 import { parseToolName } from "./tool-name-parser";
 import { toolsSyncCache } from "./tools-sync-cache";
 import { sanitizeName } from "./utils";
+import {
+  GOOGLE_WORKSPACE_SERVER_NAME,
+  GOOGLE_WORKSPACE_SERVER_UUID,
+  GOOGLE_WORKSPACE_TOOLS,
+  GoogleWorkspaceClient,
+  isGoogleWorkspaceToolName,
+} from "../google-workspace/google-workspace";
+import { googleConnectionsRepository } from "../../db/repositories";
 
 /**
  * Filter out tools that are overrides of existing tools to prevent duplicates in database
@@ -122,6 +130,9 @@ export const createServer = async (
   const toolToServerUuid: Record<string, string> = {};
   const promptToClient: Record<string, ConnectedClient> = {};
   const resourceToClient: Record<string, ConnectedClient> = {};
+  const googleWorkspaceClient = new GoogleWorkspaceClient({
+    connections: googleConnectionsRepository,
+  });
 
   // Helper function to detect if a server is the same instance
   const isSameServerInstance = (
@@ -202,6 +213,9 @@ export const createServer = async (
 
     // We'll filter servers during processing after getting sessions to check actual MCP server names
     const allServerEntries = Object.entries(serverParams);
+    const poolServerEntries = allServerEntries.filter(
+      ([, params]) => params.type !== "VIRTUAL",
+    );
 
     console.log(
       `[DEBUG-TOOLS] 📋 Processing ${allServerEntries.length} servers`,
@@ -214,24 +228,41 @@ export const createServer = async (
     if (
       poolStatus.idle === 0 &&
       poolStatus.active === 0 &&
-      allServerEntries.length > 0
+      poolServerEntries.length > 0
     ) {
       console.log(
-        `[DEBUG-TOOLS] ⚠️ Cold start: 0 idle, 0 active sessions but ${allServerEntries.length} servers registered. Warming up...`,
+          `[DEBUG-TOOLS] ⚠️ Cold start: 0 idle, 0 active sessions but ${poolServerEntries.length} servers registered. Warming up...`,
       );
-      for (const [uuid] of allServerEntries) {
+      for (const [uuid] of poolServerEntries) {
         await mcpServerPool.resetServerErrorState(uuid);
       }
-      await mcpServerPool.ensureIdleSessions(serverParams, namespaceUuid);
+      await mcpServerPool.ensureIdleSessions(
+        Object.fromEntries(poolServerEntries),
+        namespaceUuid,
+      );
       const afterStatus = mcpServerPool.getPoolStatus();
       console.log(
         `[DEBUG-TOOLS] ✅ Pool warmup complete: ${afterStatus.idle} idle, ${afterStatus.active} active`,
       );
     }
 
-    await Promise.allSettled(
-      allServerEntries.map(async ([mcpServerUuid, params]) => {
-        console.log(`[DEBUG-TOOLS] 🔧 Server: ${params.name || mcpServerUuid}`);
+      await Promise.allSettled(
+        allServerEntries.map(async ([mcpServerUuid, params]) => {
+          console.log(`[DEBUG-TOOLS] 🔧 Server: ${params.name || mcpServerUuid}`);
+
+          if (
+            mcpServerUuid === GOOGLE_WORKSPACE_SERVER_UUID &&
+            params.name === GOOGLE_WORKSPACE_SERVER_NAME &&
+            params.type === "VIRTUAL"
+          ) {
+            allTools.push(
+              ...GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
+                ...tool,
+                name: `${GOOGLE_WORKSPACE_SERVER_NAME}__${tool.name}`,
+              })),
+            );
+            return;
+          }
 
         // Skip if we've already visited this server to prevent circular references
         if (visitedServers.has(mcpServerUuid)) {
@@ -445,6 +476,23 @@ export const createServer = async (
     }
 
     const { serverName: serverPrefix, originalToolName } = parsed;
+
+    if (
+      serverPrefix === GOOGLE_WORKSPACE_SERVER_NAME &&
+      isGoogleWorkspaceToolName(originalToolName)
+    ) {
+      const userId = context.auth?.oauthUserId ?? context.auth?.apiKeyUserId;
+      const result = await googleWorkspaceClient.execute({
+        userId,
+        toolName: originalToolName,
+        arguments: (args ?? {}) as Record<string, unknown>,
+        // Filter middleware runs before this handler and enforces active map.
+        allowWrites: true,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    }
 
     // Try to find the tool in pre-populated mappings first
     let clientForTool = toolToClient[name];

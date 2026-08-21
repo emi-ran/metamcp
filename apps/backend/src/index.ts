@@ -2,6 +2,7 @@ import express from "express";
 
 import { auth } from "./auth";
 import { initializeIdleServers, initializeOnStartup } from "./lib/startup";
+import { provisionGoogleWorkspace } from "./lib/google-workspace/provisioning";
 import googleOAuthRouter from "./routers/google-oauth";
 import mcpProxyRouter from "./routers/mcp-proxy";
 import oauthRouter from "./routers/oauth";
@@ -90,6 +91,7 @@ app.use("/trpc", trpcRouter);
 async function start(): Promise<void> {
   // Startup initialization (must run after DB is reachable/migrations are applied, and before listening)
   await initializeOnStartup();
+  await provisionGoogleWorkspace();
 
   app.listen(12009, async () => {
     console.log(`Server is running on port 12009`);

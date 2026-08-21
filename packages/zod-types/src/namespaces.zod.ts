@@ -4,6 +4,7 @@ import {
   McpServerErrorStatusEnum,
   McpServerSchema,
   McpServerStatusEnum,
+  McpServerTypeEnum,
 } from "./mcp-servers.zod";
 import { ToolSchema, ToolStatusEnum } from "./tools.zod";
 
@@ -295,7 +296,7 @@ export const DatabaseNamespaceServerSchema = z.object({
   uuid: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  type: z.enum(["STDIO", "SSE", "STREAMABLE_HTTP"]),
+  type: McpServerTypeEnum,
   command: z.string().nullable(),
   args: z.array(z.string()),
   url: z.string().nullable(),

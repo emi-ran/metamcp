@@ -121,6 +121,8 @@ export async function getMcpServers(
           );
           continue;
         }
+      } else if (params.type === "VIRTUAL") {
+        // First-party virtual adapters are handled directly by MetaMCP proxy.
       }
 
       serverDict[server.uuid] = params;

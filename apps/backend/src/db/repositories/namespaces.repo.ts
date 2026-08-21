@@ -16,10 +16,18 @@ import {
   toolsTable,
 } from "../schema";
 import { namespaceMappingsRepository } from "./namespace-mappings.repo";
+import { provisionGoogleWorkspace } from "@/lib/google-workspace/provisioning";
+
+const GOOGLE_WORKSPACE_SERVER_UUID = "00000000-0000-4000-8000-000000000021";
+
+function defaultNamespaceToolStatus(serverUuid: string): "ACTIVE" | "INACTIVE" {
+  // Workspace catalog remains opt-in per tool even after server enabled.
+  return serverUuid === GOOGLE_WORKSPACE_SERVER_UUID ? "INACTIVE" : "ACTIVE";
+}
 
 export class NamespacesRepository {
   async create(input: NamespaceCreateInput): Promise<DatabaseNamespace> {
-    return await db.transaction(async (tx) => {
+    const createdNamespace = await db.transaction(async (tx) => {
       // Create the namespace
       const [createdNamespace] = await tx
         .insert(namespacesTable)
@@ -58,7 +66,7 @@ export class NamespacesRepository {
             namespace_uuid: createdNamespace.uuid,
             tool_uuid: tool.uuid,
             mcp_server_uuid: tool.mcp_server_uuid,
-            status: "ACTIVE" as const,
+            status: defaultNamespaceToolStatus(tool.mcp_server_uuid),
           }));
 
           await tx.insert(namespaceToolMappingsTable).values(toolMappings);
@@ -67,6 +75,8 @@ export class NamespacesRepository {
 
       return createdNamespace;
     });
+    await provisionGoogleWorkspace(createdNamespace.uuid);
+    return createdNamespace;
   }
 
   async findAll(): Promise<DatabaseNamespace[]> {
@@ -289,7 +299,7 @@ export class NamespacesRepository {
   }
 
   async update(input: NamespaceUpdateInput): Promise<DatabaseNamespace> {
-    return await db.transaction(async (tx) => {
+    const updatedNamespace = await db.transaction(async (tx) => {
       // Update the namespace
       const [updatedNamespace] = await tx
         .update(namespacesTable)
@@ -356,7 +366,8 @@ export class NamespacesRepository {
               mcp_server_uuid: tool.mcp_server_uuid,
               // Preserve existing status if tool was previously mapped, otherwise default to ACTIVE
               status:
-                existingToolStatusMap.get(tool.uuid) || ("ACTIVE" as const),
+                existingToolStatusMap.get(tool.uuid) ||
+                defaultNamespaceToolStatus(tool.mcp_server_uuid),
             }));
 
             await tx.insert(namespaceToolMappingsTable).values(toolMappings);
@@ -366,6 +377,9 @@ export class NamespacesRepository {
 
       return updatedNamespace;
     });
+    // Namespace edits must not remove first-party Workspace provisioning.
+    await provisionGoogleWorkspace(updatedNamespace.uuid);
+    return updatedNamespace;
   }
 }
 

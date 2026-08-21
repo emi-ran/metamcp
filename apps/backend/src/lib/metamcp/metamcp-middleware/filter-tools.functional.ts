@@ -11,6 +11,10 @@ import {
 } from "../../../db/schema";
 import { parseToolName } from "../tool-name-parser";
 import {
+  GOOGLE_WORKSPACE_SERVER_NAME,
+  isGoogleWorkspaceToolName,
+} from "../../google-workspace/google-workspace";
+import {
   CallToolMiddleware,
   ListToolsMiddleware,
 } from "./functional-middleware";
@@ -188,6 +192,12 @@ async function filterActiveTools(
 
         const serverUuid = await getServerUuidByName(parsed.serverName);
         if (!serverUuid) {
+          if (
+            sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+            isGoogleWorkspaceToolName(parsed.originalToolName)
+          ) {
+            return;
+          }
           // If server not found, include the tool (fallback behavior)
           activeTools.push(tool);
           return;
@@ -200,8 +210,15 @@ async function filterActiveTools(
           useCache,
         );
 
-        // If no mapping exists or tool is active, include it
-        if (status === null || status === "ACTIVE") {
+        // First-party Workspace tools deny by default. Catalog provisioning
+        // creates INACTIVE mappings; missing mapping must never expose it.
+        if (
+          (sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+            isGoogleWorkspaceToolName(parsed.originalToolName) &&
+            status === "ACTIVE") ||
+          (!sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+            (status === null || status === "ACTIVE"))
+        ) {
           activeTools.push(tool);
         }
         // If status is "INACTIVE", tool is filtered out
@@ -225,8 +242,8 @@ async function isToolAllowed(
   serverUuid: string,
   useCache: boolean = true,
 ): Promise<{ allowed: boolean; reason?: string }> {
+  const parsed = parseToolName(toolName);
   try {
-    const parsed = parseToolName(toolName);
     if (!parsed) {
       // If tool name doesn't follow expected format, allow it
       return { allowed: true };
@@ -239,8 +256,13 @@ async function isToolAllowed(
       useCache,
     );
 
-    // If no mapping exists or tool is active, allow it
-    if (status === null || status === "ACTIVE") {
+    const isGoogleWorkspaceTool =
+      sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+      isGoogleWorkspaceToolName(parsed.originalToolName);
+
+    // Workspace tools require an explicit active mapping. Existing upstream
+    // server behavior remains backward-compatible when mapping is absent.
+    if ((isGoogleWorkspaceTool && status === "ACTIVE") || (!isGoogleWorkspaceTool && (status === null || status === "ACTIVE"))) {
       return { allowed: true };
     }
 
@@ -254,9 +276,23 @@ async function isToolAllowed(
       `Error checking if tool ${toolName} is allowed in namespace ${namespaceUuid}:`,
       error,
     );
-    // On error, allow the tool (fail-safe behavior)
+    if (
+      parsed &&
+      sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+      isGoogleWorkspaceToolName(parsed.originalToolName)
+    ) {
+      return {
+        allowed: false,
+        reason: "Google Workspace policy status could not be verified",
+      };
+    }
+    // Preserve existing upstream behavior for non-first-party server failures.
     return { allowed: true };
   }
+}
+
+function sanitizeGoogleWorkspacePrefix(serverName: string): boolean {
+  return serverName === GOOGLE_WORKSPACE_SERVER_NAME;
 }
 
 /**
@@ -336,6 +372,22 @@ export function createFilterCallToolMiddleware(
               isError: true,
             };
           }
+        } else if (
+          sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
+          isGoogleWorkspaceToolName(parsed.originalToolName)
+        ) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: customErrorMessage(
+                  toolName,
+                  "Google Workspace policy status could not be verified",
+                ),
+              },
+            ],
+            isError: true,
+          };
         }
       }
 

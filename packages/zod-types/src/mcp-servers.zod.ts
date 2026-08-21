@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const McpServerTypeEnum = z.enum(["STDIO", "SSE", "STREAMABLE_HTTP"]);
+export const McpServerTypeEnum = z.enum(["STDIO", "SSE", "STREAMABLE_HTTP", "VIRTUAL"]);
 export const McpServerStatusEnum = z.enum(["ACTIVE", "INACTIVE"]);
 
 export const McpServerErrorStatusEnum = z.enum(["NONE", "ERROR"]);

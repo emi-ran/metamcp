@@ -32,8 +32,15 @@ const DEFAULT_GOOGLE_SCOPES = [
 // Workspace writes are deliberately unavailable from initial connect. Each key
 // maps a requested product capability to Google least-privilege OAuth scope.
 const GOOGLE_WORKSPACE_WRITE_SCOPES = {
+  "calendar.readonly": "https://www.googleapis.com/auth/calendar.readonly",
   "calendar.events": "https://www.googleapis.com/auth/calendar.events",
+  "drive.readonly": "https://www.googleapis.com/auth/drive.readonly",
   "gmail.compose": "https://www.googleapis.com/auth/gmail.compose",
+  "drive.file": "https://www.googleapis.com/auth/drive",
+  "docs.readonly": "https://www.googleapis.com/auth/documents.readonly",
+  "docs.write": "https://www.googleapis.com/auth/documents",
+  "sheets.readonly": "https://www.googleapis.com/auth/spreadsheets.readonly",
+  "sheets.write": "https://www.googleapis.com/auth/spreadsheets",
 } as const;
 
 export type GoogleWorkspaceScope = keyof typeof GOOGLE_WORKSPACE_WRITE_SCOPES;
