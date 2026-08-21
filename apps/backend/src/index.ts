@@ -2,6 +2,7 @@ import express from "express";
 
 import { auth } from "./auth";
 import { initializeIdleServers, initializeOnStartup } from "./lib/startup";
+import googleOAuthRouter from "./routers/google-oauth";
 import mcpProxyRouter from "./routers/mcp-proxy";
 import oauthRouter from "./routers/oauth";
 import publicEndpointsRouter from "./routers/public-metamcp";
@@ -19,6 +20,9 @@ app.use((req, res, next) => {
     express.json({ limit: "50mb" })(req, res, next);
   }
 });
+
+// Mount Google OAuth dedicated routes
+app.use(googleOAuthRouter);
 
 // Mount OAuth metadata endpoints at root level for .well-known discovery
 app.use(oauthRouter);

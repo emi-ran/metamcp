@@ -596,3 +596,61 @@ export const oauthAccessTokensTable = pgTable(
     index("oauth_access_tokens_refresh_token_idx").on(table.refresh_token),
   ],
 );
+
+// Google OAuth Connections table
+export const googleConnectionsTable = pgTable(
+  "google_connections",
+  {
+    uuid: uuid("uuid").primaryKey().defaultRandom(),
+    user_id: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    google_user_id: text("google_user_id"),
+    email: text("email"),
+    scopes: text("scopes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    encrypted_access_token: text("encrypted_access_token").notNull(),
+    access_token_iv: text("access_token_iv").notNull(),
+    access_token_auth_tag: text("access_token_auth_tag").notNull(),
+    encrypted_refresh_token: text("encrypted_refresh_token"),
+    refresh_token_iv: text("refresh_token_iv"),
+    refresh_token_auth_tag: text("refresh_token_auth_tag"),
+    key_version: integer("key_version").notNull().default(1),
+    access_token_expires_at: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
+    created_at: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updated_at: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("google_connections_user_id_idx").on(table.user_id),
+    unique("google_connections_user_id_unique").on(table.user_id),
+  ],
+);
+
+// Google OAuth Pending State / PKCE table
+export const googleOAuthStateTable = pgTable(
+  "google_oauth_states",
+  {
+    state: text("state").primaryKey(),
+    user_id: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    code_verifier: text("code_verifier").notNull(),
+    redirect_uri: text("redirect_uri").notNull(),
+    expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
+    created_at: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("google_oauth_states_user_id_idx").on(table.user_id),
+    index("google_oauth_states_expires_at_idx").on(table.expires_at),
+  ],
+);
