@@ -162,13 +162,31 @@ describe("GoogleWorkspaceClient", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("returns only requested minimal Gmail search metadata", async () => {
+  it("returns minimal required Gmail search metadata without message bodies", async () => {
     const { client, http } = clientWith([
       new Response(
         JSON.stringify({
-          messages: [{ id: "m1", threadId: "t1", snippet: "must not escape" }],
+          messages: [{ id: "m1", threadId: "t1" }],
           nextPageToken: "next",
           resultSizeEstimate: 25,
+        }),
+      ),
+      new Response(
+        JSON.stringify({
+          id: "m1",
+          threadId: "t1",
+          snippet: "preview snippet",
+          labelIds: ["INBOX", "UNREAD"],
+          internalDate: "1787306400000",
+          payload: {
+            headers: [
+              { name: "From", value: "sender@example.test" },
+              { name: "To", value: "receiver@example.test" },
+              { name: "Subject", value: "Test Subject" },
+              { name: "Date", value: "Fri, 21 Aug 2026 12:00:00 +0000" },
+            ],
+            body: { data: "U2VjcmV0IGJvZHk=" },
+          },
         }),
       ),
     ]);
@@ -180,16 +198,51 @@ describe("GoogleWorkspaceClient", () => {
     });
 
     expect(result).toEqual({
-      messages: [{ id: "m1", threadId: "t1" }],
+      messages: [
+        {
+          id: "m1",
+          threadId: "t1",
+          from: "sender@example.test",
+          to: "receiver@example.test",
+          subject: "Test Subject",
+          date: "Fri, 21 Aug 2026 12:00:00 +0000",
+          snippet: "preview snippet",
+          labels: ["INBOX", "UNREAD"],
+        },
+      ],
       nextPageToken: "next",
     });
-    const url = String(
-      (http.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0],
+
+    // Ensure no message body / text / attachments leaked
+    const msg = (result as { messages: Record<string, unknown>[] }).messages[0];
+    expect(msg).not.toHaveProperty("text");
+    expect(msg).not.toHaveProperty("body");
+    expect(msg).not.toHaveProperty("attachments");
+    expect(msg).not.toHaveProperty("payload");
+    expect(msg).not.toHaveProperty("internalDate");
+
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+
+    const listUrl = String(calls[0][0]);
+    expect(listUrl).toContain("/gmail/v1/users/me/messages?");
+    expect(listUrl).toContain("q=is%3Aunread");
+    expect(listUrl).toContain("maxResults=5");
+    expect(listUrl).toContain("pageToken=page");
+    expect(listUrl).toContain(
+      "fields=messages%28id%2CthreadId%29%2CnextPageToken",
     );
-    expect(url).toContain("q=is%3Aunread");
-    expect(url).toContain("maxResults=5");
-    expect(url).toContain("pageToken=page");
-    expect(url).toContain("fields=messages%28id%2CthreadId%29%2CnextPageToken");
+
+    const getUrl = String(calls[1][0]);
+    expect(getUrl).toContain("/gmail/v1/users/me/messages/m1?");
+    expect(getUrl).toContain("format=metadata");
+    expect(getUrl).toContain("metadataHeaders=From");
+    expect(getUrl).toContain("metadataHeaders=To");
+    expect(getUrl).toContain("metadataHeaders=Subject");
+    expect(getUrl).toContain("metadataHeaders=Date");
+    expect(getUrl).toContain(
+      "fields=id%2CthreadId%2Csnippet%2ClabelIds%2Cpayload%2Fheaders",
+    );
   });
 
   it("parses nested Gmail MIME for messages and threads", async () => {

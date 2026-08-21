@@ -91,7 +91,7 @@ const notifyAttendees = {
 export const GOOGLE_WORKSPACE_TOOLS: Tool[] = [
   tool(
     "gmail_search",
-    "Search Gmail and return only message IDs and thread IDs.",
+    "Search Gmail and return message metadata (id, threadId, from, to, subject, date, snippet, labels).",
     {
       query: { type: "string" },
       maxResults: { type: "integer", minimum: 1, maximum: 100 },
@@ -609,6 +609,40 @@ type GmailPart = {
   parts?: unknown;
 };
 
+function parseGmailSearchMetadata(message: Record<string, unknown>) {
+  const payload =
+    message.payload && typeof message.payload === "object"
+      ? (message.payload as GmailPart)
+      : {};
+  const headers = Array.isArray(payload.headers) ? payload.headers : [];
+  const headerMap = Object.fromEntries(
+    headers.flatMap((header) => {
+      if (!header || typeof header !== "object") return [];
+      const { name, value } = header as { name?: unknown; value?: unknown };
+      return typeof name === "string" && typeof value === "string"
+        ? [[name.toLowerCase(), value]]
+        : [];
+    }),
+  );
+  const labels = Array.isArray(message.labelIds)
+    ? message.labelIds.filter(
+        (label): label is string => typeof label === "string",
+      )
+    : [];
+
+  return {
+    id: typeof message.id === "string" ? message.id : undefined,
+    threadId:
+      typeof message.threadId === "string" ? message.threadId : undefined,
+    from: headerMap.from ?? "",
+    to: headerMap.to ?? "",
+    subject: headerMap.subject ?? "",
+    date: headerMap.date ?? "",
+    snippet: typeof message.snippet === "string" ? message.snippet : undefined,
+    labels,
+  };
+}
+
 function parseMimeMessage(message: Record<string, unknown>) {
   const payload =
     message.payload && typeof message.payload === "object"
@@ -1026,22 +1060,29 @@ export class GoogleWorkspaceClient {
       const result = (await json(
         `/gmail/v1/users/me/messages?${params}`,
       )) as Record<string, unknown>;
-      const messages = Array.isArray(result.messages)
+      const rawMessages = Array.isArray(result.messages)
         ? result.messages.flatMap((message) => {
             if (!message || typeof message !== "object") return [];
             const item = message as Record<string, unknown>;
-            return typeof item.id === "string"
-              ? [
-                  {
-                    id: item.id,
-                    ...(typeof item.threadId === "string"
-                      ? { threadId: item.threadId }
-                      : {}),
-                  },
-                ]
-              : [];
+            return typeof item.id === "string" ? [item.id] : [];
           })
         : [];
+      const messages = await Promise.all(
+        rawMessages.map(async (messageId) => {
+          const detailParams = new URLSearchParams({
+            format: "metadata",
+            fields: "id,threadId,snippet,labelIds,payload/headers",
+          });
+          detailParams.append("metadataHeaders", "From");
+          detailParams.append("metadataHeaders", "To");
+          detailParams.append("metadataHeaders", "Subject");
+          detailParams.append("metadataHeaders", "Date");
+          const detail = (await json(
+            `/gmail/v1/users/me/messages/${encodePath(messageId)}?${detailParams}`,
+          )) as Record<string, unknown>;
+          return parseGmailSearchMetadata(detail);
+        }),
+      );
       return {
         messages,
         ...(typeof result.nextPageToken === "string"
