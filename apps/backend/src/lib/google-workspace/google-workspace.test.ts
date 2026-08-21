@@ -30,6 +30,21 @@ const expectedToolNames = [
   "gmail_get_thread",
   "gmail_list_labels",
   "gmail_download_attachment",
+  "gmail_mark_read",
+  "gmail_mark_unread",
+  "gmail_star",
+  "gmail_unstar",
+  "gmail_archive",
+  "gmail_unarchive",
+  "gmail_move_to_inbox",
+  "gmail_trash",
+  "gmail_untrash",
+  "gmail_report_spam",
+  "gmail_remove_spam",
+  "gmail_add_labels",
+  "gmail_remove_labels",
+  "gmail_trash_thread",
+  "gmail_untrash_thread",
   "calendar_list_calendars",
   "calendar_list_events",
   "calendar_get_event",
@@ -138,6 +153,21 @@ describe("Google Workspace catalog", () => {
       (tool) => tool.annotations?.readOnlyHint === false,
     );
     expect(writeTools.map((tool) => tool.name)).toEqual([
+      "gmail_mark_read",
+      "gmail_mark_unread",
+      "gmail_star",
+      "gmail_unstar",
+      "gmail_archive",
+      "gmail_unarchive",
+      "gmail_move_to_inbox",
+      "gmail_trash",
+      "gmail_untrash",
+      "gmail_report_spam",
+      "gmail_remove_spam",
+      "gmail_add_labels",
+      "gmail_remove_labels",
+      "gmail_trash_thread",
+      "gmail_untrash_thread",
       "calendar_create_event",
       "calendar_update_event",
       "calendar_delete_event",
@@ -409,6 +439,319 @@ describe("GoogleWorkspaceClient", () => {
         arguments: { messageId: "m1", attachmentId: "a3" },
       }),
     ).resolves.toEqual({ size: 4, dataBase64: "c2FmZQ==" });
+  });
+
+  it("annotates Phase 1 Gmail organization tools as writes with accurate safety hints", () => {
+    const annotations = Object.fromEntries(
+      GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool.annotations]),
+    );
+    for (const name of [
+      "gmail_mark_read",
+      "gmail_mark_unread",
+      "gmail_star",
+      "gmail_unstar",
+      "gmail_archive",
+      "gmail_unarchive",
+      "gmail_move_to_inbox",
+      "gmail_untrash",
+      "gmail_report_spam",
+      "gmail_remove_spam",
+      "gmail_add_labels",
+      "gmail_remove_labels",
+      "gmail_untrash_thread",
+    ]) {
+      expect(annotations[name]).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      });
+    }
+    expect(annotations.gmail_trash).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_trash_thread).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+  });
+
+  it("maps Phase 1 message modify actions to exact endpoints, methods, and payloads", async () => {
+    const { client, http } = clientWith(
+      [
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.modify"],
+    );
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_mark_read",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_mark_unread",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_star",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_archive",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_remove_spam",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_add_labels",
+      allowWrites: true,
+      arguments: { messageId: "m1", labelIds: ["Label_1", "Label_2"] },
+    });
+
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(6);
+    const expected = [
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { removeLabelIds: ["UNREAD"] },
+      },
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { addLabelIds: ["UNREAD"] },
+      },
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { addLabelIds: ["STARRED"] },
+      },
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { removeLabelIds: ["INBOX"] },
+      },
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
+      },
+      {
+        url: "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+        body: { addLabelIds: ["Label_1", "Label_2"] },
+      },
+    ];
+    calls.forEach(([url, init], index) => {
+      expect(String(url)).toBe(expected[index].url);
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body))).toEqual(expected[index].body);
+      // Gmail modify payloads may only use addLabelIds/removeLabelIds.
+      expect(Object.keys(JSON.parse(String(init.body))).sort()).toEqual(
+        Object.keys(expected[index].body).sort(),
+      );
+    });
+  });
+
+  it("maps remove_labels and trash/untrash for messages and threads to exact endpoints", async () => {
+    const { client, http } = clientWith(
+      [
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "m1" })),
+        new Response(JSON.stringify({ id: "t1" })),
+        new Response(JSON.stringify({ id: "t1" })),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.modify"],
+    );
+
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_remove_labels",
+      allowWrites: true,
+      arguments: { messageId: "m1", labelIds: ["Label_9"] },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_trash",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_untrash",
+      allowWrites: true,
+      arguments: { messageId: "m1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_trash_thread",
+      allowWrites: true,
+      arguments: { threadId: "t1" },
+    });
+    await client.execute({
+      userId: "request-user",
+      toolName: "gmail_untrash_thread",
+      allowWrites: true,
+      arguments: { threadId: "t1" },
+    });
+
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map(([url]) => String(url))).toEqual([
+      "https://www.googleapis.com/gmail/v1/users/me/messages/m1/modify",
+      "https://www.googleapis.com/gmail/v1/users/me/messages/m1/trash",
+      "https://www.googleapis.com/gmail/v1/users/me/messages/m1/untrash",
+      "https://www.googleapis.com/gmail/v1/users/me/threads/t1/trash",
+      "https://www.googleapis.com/gmail/v1/users/me/threads/t1/untrash",
+    ]);
+    expect(calls.every(([, init]) => init.method === "POST")).toBe(true);
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({
+      removeLabelIds: ["Label_9"],
+    });
+    // Trash/untrash endpoints carry no JSON body.
+    expect(calls[1][1].body).toBeUndefined();
+    expect(calls[3][1].body).toBeUndefined();
+  });
+
+  it("rejects gmail.modify-only tools with exact re-consent guidance under gmail.readonly", async () => {
+    const { client } = clientWith(
+      [],
+      ["https://www.googleapis.com/auth/gmail.readonly"],
+    );
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_mark_read",
+        allowWrites: true,
+        arguments: { messageId: "m1" },
+      }),
+    ).rejects.toEqual(
+      new GoogleWorkspaceError(
+        "FORBIDDEN",
+        'Google connection lacks required scope. Reconnect and explicitly select "gmail.modify".',
+      ),
+    );
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_trash_thread",
+        allowWrites: true,
+        arguments: { threadId: "t1" },
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("keeps existing Gmail reads working with only gmail.readonly", async () => {
+    const { client } = clientWith(
+      [
+        new Response(JSON.stringify({ labels: [{ id: "INBOX", name: "Inbox" }] })),
+        new Response(
+          JSON.stringify({
+            id: "m1",
+            threadId: "t1",
+            payload: { headers: [] },
+          }),
+        ),
+      ],
+      ["https://www.googleapis.com/auth/gmail.readonly"],
+    );
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+    ).resolves.toEqual({ labels: [{ id: "INBOX", name: "Inbox" }] });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_get_message",
+        arguments: { messageId: "m1" },
+      }),
+    ).resolves.toMatchObject({ id: "m1", threadId: "t1" });
+  });
+
+  it("rejects missing IDs and invalid or system label arrays before any Google call", async () => {
+    const { client, http } = clientWith(
+      [],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.modify"],
+    );
+    const hundredLabels = Array.from({ length: 100 }, (_, i) => `Label_${i}`);
+    const tooManyLabels = [...hundredLabels, "Label_100"];
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_mark_read",
+        allowWrites: true,
+        arguments: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_trash_thread",
+        allowWrites: true,
+        arguments: {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_add_labels",
+        allowWrites: true,
+        arguments: { messageId: "m1", labelIds: [] },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_add_labels",
+        allowWrites: true,
+        arguments: { messageId: "m1", labelIds: tooManyLabels },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_remove_labels",
+        allowWrites: true,
+        arguments: { messageId: "m1", labelIds: ["Label_1", 42] },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_add_labels",
+        allowWrites: true,
+        arguments: { messageId: "m1", labelIds: ["Label_1", "INBOX"] },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_remove_labels",
+        allowWrites: true,
+        arguments: { messageId: "m1", labelIds: ["CATEGORY_PROMOTIONS"] },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(http.fetch).not.toHaveBeenCalled();
   });
 
   it("maps calendar freebusy with timezone and calendar IDs", async () => {

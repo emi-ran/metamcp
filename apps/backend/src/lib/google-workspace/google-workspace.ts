@@ -15,6 +15,7 @@ const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
 
 const scopes = {
   gmailRead: "https://www.googleapis.com/auth/gmail.readonly",
+  gmailModify: "https://www.googleapis.com/auth/gmail.modify",
   calendarRead: "https://www.googleapis.com/auth/calendar.readonly",
   calendarWrite: "https://www.googleapis.com/auth/calendar.events",
   driveRead: "https://www.googleapis.com/auth/drive.readonly",
@@ -129,6 +130,111 @@ export const GOOGLE_WORKSPACE_TOOLS: Tool[] = [
       attachmentId: { type: "string" },
     },
     ["messageId", "attachmentId"],
+  ),
+  tool(
+    "gmail_mark_read",
+    "Remove UNREAD from one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_mark_unread",
+    "Add UNREAD to one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_star",
+    "Add STARRED to one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_unstar",
+    "Remove STARRED from one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_archive",
+    "Remove INBOX from one message without deleting it. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_unarchive",
+    "Add INBOX back to one archived message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_move_to_inbox",
+    "Add INBOX to one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_trash",
+    "Move one message to Trash. Reversible with gmail_untrash. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, destructive: true },
+  ),
+  tool(
+    "gmail_untrash",
+    "Restore one trashed message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_report_spam",
+    "Add SPAM to one message. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_remove_spam",
+    "Remove SPAM from one message and add INBOX. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" } },
+    ["messageId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_add_labels",
+    "Add 1-100 caller-supplied user label IDs to one message. Gmail system labels are rejected; use the dedicated organization tools for them. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" }, labelIds: stringArray(100) },
+    ["messageId", "labelIds"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_remove_labels",
+    "Remove 1-100 caller-supplied user label IDs from one message. Gmail system labels are rejected; use the dedicated organization tools for them. Active policy mapping and gmail.modify re-consent required.",
+    { messageId: { type: "string" }, labelIds: stringArray(100) },
+    ["messageId", "labelIds"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_trash_thread",
+    "Move every message in one thread to Trash. Reversible with gmail_untrash_thread. Active policy mapping and gmail.modify re-consent required.",
+    { threadId: { type: "string" } },
+    ["threadId"],
+    { write: true, destructive: true },
+  ),
+  tool(
+    "gmail_untrash_thread",
+    "Restore every message in one trashed thread. Active policy mapping and gmail.modify re-consent required.",
+    { threadId: { type: "string" } },
+    ["threadId"],
+    { write: true, idempotent: true },
   ),
   tool("calendar_list_calendars", "List Google calendars."),
   tool(
@@ -543,6 +649,48 @@ function encodePath(value: string): string {
   return encodeURIComponent(value);
 }
 
+const GMAIL_SYSTEM_LABELS = new Set([
+  "INBOX",
+  "SPAM",
+  "TRASH",
+  "UNREAD",
+  "STARRED",
+  "IMPORTANT",
+  "SENT",
+  "DRAFT",
+  "CATEGORY_PERSONAL",
+  "CATEGORY_SOCIAL",
+  "CATEGORY_UPDATES",
+  "CATEGORY_FORUMS",
+  "CATEGORY_PROMOTIONS",
+]);
+
+function validateUserLabelIds(args: Record<string, unknown>): string[] {
+  const labelIds = requiredStringArray(args, "labelIds", 100);
+  if (labelIds.some((labelId) => GMAIL_SYSTEM_LABELS.has(labelId))) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      "labelIds must not contain Gmail system labels; use the dedicated organization tools instead",
+    );
+  }
+  return labelIds;
+}
+
+const GMAIL_MESSAGE_MODIFY_ACTIONS: Record<
+  string,
+  { addLabelIds?: string[]; removeLabelIds?: string[] }
+> = {
+  gmail_mark_read: { removeLabelIds: ["UNREAD"] },
+  gmail_mark_unread: { addLabelIds: ["UNREAD"] },
+  gmail_star: { addLabelIds: ["STARRED"] },
+  gmail_unstar: { removeLabelIds: ["STARRED"] },
+  gmail_archive: { removeLabelIds: ["INBOX"] },
+  gmail_unarchive: { addLabelIds: ["INBOX"] },
+  gmail_move_to_inbox: { addLabelIds: ["INBOX"] },
+  gmail_report_spam: { addLabelIds: ["SPAM"] },
+  gmail_remove_spam: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
+};
+
 function decodeBase64(value: string, key: string): Buffer {
   if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(value) || value.length % 4 === 1) {
     throw new GoogleWorkspaceError(
@@ -567,7 +715,9 @@ type ScopeRequirement = { anyOf: string[]; guidance: string };
 
 function requiredScope(toolName: string): ScopeRequirement {
   if (toolName.startsWith("gmail_")) {
-    return { anyOf: [scopes.gmailRead], guidance: '"gmail.readonly"' };
+    return isGoogleWorkspaceWriteTool(toolName)
+      ? { anyOf: [scopes.gmailModify], guidance: '"gmail.modify"' }
+      : { anyOf: [scopes.gmailRead], guidance: '"gmail.readonly"' };
   }
   if (toolName.startsWith("calendar_")) {
     return isGoogleWorkspaceWriteTool(toolName)
@@ -1186,6 +1336,54 @@ export class GoogleWorkspaceClient {
         size: data.byteLength,
         dataBase64: data.toString("base64"),
       };
+    }
+    const gmailModifyAction = GMAIL_MESSAGE_MODIFY_ACTIONS[toolName];
+    if (gmailModifyAction) {
+      return json(
+        `/gmail/v1/users/me/messages/${encodePath(requiredString(args, "messageId"))}/modify`,
+        "POST",
+        {
+          ...(gmailModifyAction.addLabelIds
+            ? { addLabelIds: gmailModifyAction.addLabelIds }
+            : {}),
+          ...(gmailModifyAction.removeLabelIds
+            ? { removeLabelIds: gmailModifyAction.removeLabelIds }
+            : {}),
+        },
+        false,
+      );
+    }
+    if (toolName === "gmail_add_labels") {
+      return json(
+        `/gmail/v1/users/me/messages/${encodePath(requiredString(args, "messageId"))}/modify`,
+        "POST",
+        { addLabelIds: validateUserLabelIds(args) },
+        false,
+      );
+    }
+    if (toolName === "gmail_remove_labels") {
+      return json(
+        `/gmail/v1/users/me/messages/${encodePath(requiredString(args, "messageId"))}/modify`,
+        "POST",
+        { removeLabelIds: validateUserLabelIds(args) },
+        false,
+      );
+    }
+    if (toolName === "gmail_trash" || toolName === "gmail_untrash") {
+      return json(
+        `/gmail/v1/users/me/messages/${encodePath(requiredString(args, "messageId"))}/${toolName === "gmail_trash" ? "trash" : "untrash"}`,
+        "POST",
+        undefined,
+        false,
+      );
+    }
+    if (toolName === "gmail_trash_thread" || toolName === "gmail_untrash_thread") {
+      return json(
+        `/gmail/v1/users/me/threads/${encodePath(requiredString(args, "threadId"))}/${toolName === "gmail_trash_thread" ? "trash" : "untrash"}`,
+        "POST",
+        undefined,
+        false,
+      );
     }
     if (toolName === "calendar_list_calendars") {
       return json("/calendar/v3/users/me/calendarList");
