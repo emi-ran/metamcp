@@ -1,4 +1,4 @@
-import { eq, lt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 
 import { db } from "../index";
 import { googleOAuthStateTable } from "../schema";
@@ -25,26 +25,17 @@ export class GoogleOAuthStateRepository {
   async consumeState(
     state: string,
   ): Promise<typeof googleOAuthStateTable.$inferSelect | null> {
-    const rows = await db
-      .select()
-      .from(googleOAuthStateTable)
-      .where(eq(googleOAuthStateTable.state, state))
-      .limit(1);
+    const [record] = await db
+      .delete(googleOAuthStateTable)
+      .where(
+        and(
+          eq(googleOAuthStateTable.state, state),
+          gt(googleOAuthStateTable.expires_at, new Date()),
+        ),
+      )
+      .returning();
 
-    const record = rows[0] || null;
-    if (record) {
-      // One-time use: delete immediately
-      await db
-        .delete(googleOAuthStateTable)
-        .where(eq(googleOAuthStateTable.state, state));
-
-      // Check expiry
-      if (new Date(record.expires_at).getTime() < Date.now()) {
-        return null;
-      }
-    }
-
-    return record;
+    return record ?? null;
   }
 
   async cleanupExpired(): Promise<void> {

@@ -19,27 +19,42 @@ export function getPublicCallbackUrl(): string {
     throw new Error("APP_URL environment variable is required");
   }
   const cleanAppUrl = appUrl.endsWith("/") ? appUrl.slice(0, -1) : appUrl;
-  return `${cleanAppUrl}/api/oauth/google/callback`;
+  return `${cleanAppUrl}/integrations/google/callback`;
 }
+
+const DEFAULT_GOOGLE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/gmail.readonly",
+] as const;
+
+// Workspace writes are deliberately unavailable from initial connect. Each key
+// maps a requested product capability to Google least-privilege OAuth scope.
+const GOOGLE_WORKSPACE_WRITE_SCOPES = {
+  "calendar.events": "https://www.googleapis.com/auth/calendar.events",
+  "gmail.compose": "https://www.googleapis.com/auth/gmail.compose",
+} as const;
+
+export type GoogleWorkspaceScope = keyof typeof GOOGLE_WORKSPACE_WRITE_SCOPES;
 
 export function buildGoogleAuthUrl(params: {
   clientId: string;
   redirectUri: string;
   state: string;
   codeChallenge: string;
-  scopes?: string[];
+  workspaceScopes?: GoogleWorkspaceScope[];
   forcePrompt?: boolean;
 }): string {
-  const defaultScopes = [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/gmail.modify",
+  if (params.workspaceScopes?.length && !params.forcePrompt) {
+    throw new Error("Workspace write scopes require forced re-consent");
+  }
+  const scopes = [
+    ...DEFAULT_GOOGLE_SCOPES,
+    ...(params.workspaceScopes?.map(
+      (scope) => GOOGLE_WORKSPACE_WRITE_SCOPES[scope],
+    ) ?? []),
   ];
-
-  const scopes =
-    params.scopes && params.scopes.length > 0 ? params.scopes : defaultScopes;
 
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", params.clientId);
@@ -86,8 +101,8 @@ export async function exchangeGoogleCode(params: {
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Google token exchange failed: ${res.status} ${errText}`);
+    await res.text();
+    throw new Error(`Google token exchange failed with status ${res.status}`);
   }
 
   return (await res.json()) as {
@@ -116,5 +131,17 @@ export async function fetchGoogleUserInfo(accessToken: string) {
     };
   } catch {
     return null;
+  }
+}
+
+export async function revokeGoogleToken(token: string): Promise<void> {
+  try {
+    await fetch("https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }).toString(),
+    });
+  } catch {
+    // Disconnect always removes local credentials even if Google is unavailable.
   }
 }

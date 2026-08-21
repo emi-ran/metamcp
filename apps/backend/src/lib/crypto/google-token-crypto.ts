@@ -7,6 +7,45 @@ export interface EncryptedTokenPayload {
   keyVersion: number;
 }
 
+type GoogleTokenKeyConfig = Record<string, string>;
+
+function getGoogleTokenKeyConfig(): GoogleTokenKeyConfig | null {
+  const rawConfig = process.env.GOOGLE_TOKEN_ENCRYPTION_KEYS;
+  if (!rawConfig) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawConfig);
+  } catch {
+    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEYS must be valid JSON");
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "GOOGLE_TOKEN_ENCRYPTION_KEYS must be a version-to-key map",
+    );
+  }
+
+  return parsed as GoogleTokenKeyConfig;
+}
+
+export function getGoogleTokenActiveKeyVersion(): number {
+  const keys = getGoogleTokenKeyConfig();
+  if (!keys) return 1;
+
+  const rawVersion = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION;
+  const keyVersion = Number(rawVersion);
+  if (!Number.isSafeInteger(keyVersion) || keyVersion < 1) {
+    throw new Error(
+      "GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION must identify a configured key",
+    );
+  }
+  if (!keys[String(keyVersion)]) {
+    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION is not configured");
+  }
+  return keyVersion;
+}
+
 export function getGoogleTokenEncryptionKey(envKey?: string): Buffer {
   const rawKey = envKey ?? process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
   if (!rawKey) {
@@ -29,18 +68,37 @@ export function getGoogleTokenEncryptionKey(envKey?: string): Buffer {
   return buf;
 }
 
+function resolveGoogleTokenEncryptionKey(keyVersion: number): Buffer {
+  const keys = getGoogleTokenKeyConfig();
+  if (!keys) {
+    if (keyVersion !== 1) {
+      throw new Error(
+        `Google token encryption key version ${keyVersion} is not configured`,
+      );
+    }
+    return getGoogleTokenEncryptionKey();
+  }
+
+  const key = keys[String(keyVersion)];
+  if (!key) {
+    throw new Error(
+      `Google token encryption key version ${keyVersion} is not configured`,
+    );
+  }
+  return getGoogleTokenEncryptionKey(key);
+}
+
 export function encryptGoogleToken(
   plaintext: string,
   options?: { key?: string | Buffer; keyVersion?: number },
 ): EncryptedTokenPayload {
+  const keyVersion = options?.keyVersion ?? getGoogleTokenActiveKeyVersion();
   const keyBuf =
     options?.key instanceof Buffer
       ? options.key
       : typeof options?.key === "string"
         ? getGoogleTokenEncryptionKey(options.key)
-        : getGoogleTokenEncryptionKey();
-
-  const keyVersion = options?.keyVersion ?? 1;
+        : resolveGoogleTokenEncryptionKey(keyVersion);
   const iv = crypto.randomBytes(12); // Standard 12-byte IV for AES-GCM
   const cipher = crypto.createCipheriv("aes-256-gcm", keyBuf, iv);
 
@@ -65,7 +123,7 @@ export function decryptGoogleToken(
       ? options.key
       : typeof options?.key === "string"
         ? getGoogleTokenEncryptionKey(options.key)
-        : getGoogleTokenEncryptionKey();
+        : resolveGoogleTokenEncryptionKey(payload.keyVersion);
 
   const iv = Buffer.from(payload.iv, "hex");
   const authTag = Buffer.from(payload.authTag, "hex");

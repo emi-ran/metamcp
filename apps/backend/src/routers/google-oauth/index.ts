@@ -14,6 +14,8 @@ import {
   generateOAuthState,
   generatePkcePair,
   getPublicCallbackUrl,
+  type GoogleWorkspaceScope,
+  revokeGoogleToken,
 } from "./google-oauth-service";
 
 const googleOAuthRouter = express.Router();
@@ -32,30 +34,34 @@ async function getAuthenticatedUser(req: express.Request) {
       headers,
     });
     return session?.user ?? null;
-  } catch (err) {
-    logger.error("Failed to authenticate session:", err);
+  } catch {
+    logger.error("Google OAuth session authentication failed");
     return null;
   }
 }
 
-// 1. GET /api/oauth/google/status - get connection status
-googleOAuthRouter.get("/api/oauth/google/status", async (req, res) => {
-  try {
-    const user = await getAuthenticatedUser(req);
-    if (!user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+function oauthError(message: string): Error {
+  return new Error(message);
+}
 
-    const status = await googleConnectionsRepository.getStatus(user.id);
-    return res.json(status);
-  } catch (error) {
-    logger.error("Error fetching Google OAuth status:", error);
-    return res.status(500).json({ error: "Internal server error" });
+function parseWorkspaceScopes(value: unknown): GoogleWorkspaceScope[] {
+  if (value === undefined) return [];
+  if (
+    !Array.isArray(value) ||
+    value.some(
+      (scope) => scope !== "calendar.events" && scope !== "gmail.compose",
+    )
+  ) {
+    throw oauthError("Invalid requested Google workspace scopes");
   }
-});
+  return value as GoogleWorkspaceScope[];
+}
 
-// 2. GET /api/oauth/google/connect - initiate OAuth flow
-googleOAuthRouter.get("/api/oauth/google/connect", async (req, res) => {
+async function startGoogleConnect(
+  req: express.Request,
+  res: express.Response,
+  options: { forcePrompt: boolean; workspaceScopes: GoogleWorkspaceScope[] },
+) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user) {
@@ -90,7 +96,8 @@ googleOAuthRouter.get("/api/oauth/google/connect", async (req, res) => {
       redirectUri,
       state,
       codeChallenge,
-      forcePrompt: req.query.prompt === "consent",
+      forcePrompt: options.forcePrompt,
+      workspaceScopes: options.workspaceScopes,
     });
 
     if (req.query.json === "true") {
@@ -98,30 +105,70 @@ googleOAuthRouter.get("/api/oauth/google/connect", async (req, res) => {
     }
 
     return res.redirect(authUrl);
-  } catch (error) {
-    logger.error("Error initiating Google OAuth connect:", error);
+  } catch {
+    logger.error("Google OAuth connect initiation failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// GET /integrations/google/status - get connection status
+googleOAuthRouter.get("/integrations/google/status", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    return res.json(await googleConnectionsRepository.getStatus(user.id));
+  } catch {
+    logger.error("Google OAuth status lookup failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// 3. GET /api/oauth/google/reconnect - force consent/prompt reconnect
-googleOAuthRouter.get("/api/oauth/google/reconnect", async (req, res) => {
-  req.query.prompt = "consent";
+// Backward-compatible alias while clients move from prior core route.
+googleOAuthRouter.get("/api/oauth/google/status", async (req, res) => {
+  return res.redirect(307, "/integrations/google/status");
+});
+
+// GET /integrations/google/connect - initial least-privilege OAuth flow.
+googleOAuthRouter.get("/integrations/google/connect", async (req, res) => {
+  return startGoogleConnect(req, res, {
+    forcePrompt: false,
+    workspaceScopes: [],
+  });
+});
+
+googleOAuthRouter.get("/api/oauth/google/connect", async (req, res) => {
+  return res.redirect(307, "/integrations/google/connect");
+});
+
+googleOAuthRouter.get("/api/oauth/google/callback", async (req, res) => {
   return res.redirect(
-    `/api/oauth/google/connect?prompt=consent${req.query.json === "true" ? "&json=true" : ""}`,
+    307,
+    `/integrations/google/callback?${req.url.split("?")[1] ?? ""}`,
   );
 });
 
-// 4. GET /api/oauth/google/callback - handle Google redirect
-googleOAuthRouter.get("/api/oauth/google/callback", async (req, res) => {
+// POST /integrations/google/reconnect - explicit re-consent for optional writes.
+googleOAuthRouter.post("/integrations/google/reconnect", async (req, res) => {
+  let workspaceScopes: GoogleWorkspaceScope[];
   try {
-    const { code, state, error: oauthError, error_description } = req.query;
+    workspaceScopes = parseWorkspaceScopes(req.body?.workspaceScopes);
+  } catch {
+    return res
+      .status(400)
+      .json({ error: "Invalid requested Google workspace scopes" });
+  }
+  return startGoogleConnect(req, res, { forcePrompt: true, workspaceScopes });
+});
 
-    if (oauthError) {
-      logger.error(
-        `Google OAuth returned error: ${oauthError} - ${error_description}`,
-      );
-      return res.status(400).send(`Google OAuth error: ${oauthError}`);
+// GET /integrations/google/callback - handle Google redirect.
+googleOAuthRouter.get("/integrations/google/callback", async (req, res) => {
+  try {
+    const { code, state, error: googleError } = req.query;
+
+    if (googleError) {
+      logger.error("Google OAuth authorization was denied or failed");
+      return res.status(400).send("Google OAuth authorization failed");
     }
 
     if (
@@ -174,28 +221,43 @@ googleOAuthRouter.get("/api/oauth/google/callback", async (req, res) => {
 
     const appUrl = process.env.APP_URL || "/";
     return res.redirect(`${appUrl}`);
-  } catch (error) {
-    logger.error("Error handling Google OAuth callback:", error);
+  } catch {
+    logger.error("Google OAuth callback handling failed");
     return res
       .status(500)
       .send("Internal server error during Google OAuth callback");
   }
 });
 
-// 5. POST /api/oauth/google/disconnect - remove user connection
-googleOAuthRouter.post("/api/oauth/google/disconnect", async (req, res) => {
+// POST /integrations/google/disconnect - revoke remote token best-effort, then delete local record.
+googleOAuthRouter.post("/integrations/google/disconnect", async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
+    let tokens: Awaited<
+      ReturnType<typeof googleConnectionsRepository.getDecryptedTokens>
+    > = null;
+    try {
+      tokens = await googleConnectionsRepository.getDecryptedTokens(user.id);
+    } catch {
+      logger.error("Google OAuth disconnect could not decrypt local token");
+    }
+    if (tokens?.refreshToken) await revokeGoogleToken(tokens.refreshToken);
+    else if (tokens?.accessToken) await revokeGoogleToken(tokens.accessToken);
+
     await googleConnectionsRepository.deleteByUserId(user.id);
     return res.json({ success: true });
-  } catch (error) {
-    logger.error("Error disconnecting Google connection:", error);
+  } catch {
+    logger.error("Google OAuth disconnect failed");
     return res.status(500).json({ error: "Internal server error" });
   }
+});
+
+googleOAuthRouter.post("/api/oauth/google/disconnect", async (req, res) => {
+  return res.redirect(307, "/integrations/google/disconnect");
 });
 
 export default googleOAuthRouter;

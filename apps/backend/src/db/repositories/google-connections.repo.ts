@@ -27,6 +27,7 @@ export interface GoogleConnectionStatus {
   scopes?: string[];
   expiresAt?: Date | null;
   updatedAt?: Date | null;
+  revokedAt?: Date | null;
 }
 
 export class GoogleConnectionsRepository {
@@ -50,7 +51,7 @@ export class GoogleConnectionsRepository {
     email: string | null;
   } | null> {
     const conn = await this.getByUserId(userId);
-    if (!conn) return null;
+    if (!conn || conn.revoked_at) return null;
 
     const accessToken = decryptGoogleToken({
       encryptedData: conn.encrypted_access_token,
@@ -88,6 +89,10 @@ export class GoogleConnectionsRepository {
       return { connected: false };
     }
 
+    if (conn.revoked_at) {
+      return { connected: false, revokedAt: conn.revoked_at };
+    }
+
     return {
       connected: true,
       email: conn.email,
@@ -95,11 +100,12 @@ export class GoogleConnectionsRepository {
       scopes: conn.scopes,
       expiresAt: conn.access_token_expires_at,
       updatedAt: conn.updated_at,
+      revokedAt: conn.revoked_at,
     };
   }
 
   async upsertConnection(input: SaveGoogleTokensInput): Promise<void> {
-    const keyVersion = input.keyVersion ?? 1;
+    const keyVersion = input.keyVersion;
     const encAccess = encryptGoogleToken(input.accessToken, { keyVersion });
 
     let encRefresh: EncryptedTokenPayload | null = null;
@@ -127,8 +133,9 @@ export class GoogleConnectionsRepository {
       refresh_token_iv: encRefresh?.iv ?? existing?.refresh_token_iv ?? null,
       refresh_token_auth_tag:
         encRefresh?.authTag ?? existing?.refresh_token_auth_tag ?? null,
-      key_version: keyVersion,
+      key_version: encAccess.keyVersion,
       access_token_expires_at: expiresAt,
+      revoked_at: null,
       updated_at: new Date(),
     };
 

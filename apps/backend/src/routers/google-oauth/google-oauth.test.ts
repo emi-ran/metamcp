@@ -12,6 +12,7 @@ import {
 
 import {
   buildGoogleAuthUrl,
+  exchangeGoogleCode,
   generateOAuthState,
   generatePkcePair,
 } from "./google-oauth-service";
@@ -50,6 +51,7 @@ vi.mock("@/db/repositories", () => {
       deleteByUserId: vi.fn(async (userId: string) => {
         store.delete(userId);
       }),
+      getDecryptedTokens: vi.fn(async () => null),
     },
     googleOAuthStateRepository: {
       createState: vi.fn(async (input: any) => {
@@ -120,13 +122,46 @@ describe("Google OAuth Core & Routes", () => {
     expect(parsed.searchParams.get("access_type")).toBe("offline");
     expect(parsed.searchParams.get("code_challenge")).toBe("test-challenge");
     expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(parsed.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/gmail.readonly",
+    );
+    expect(parsed.searchParams.get("scope")).not.toContain(
+      "https://www.googleapis.com/auth/gmail.modify",
+    );
+    expect(parsed.searchParams.get("scope")).not.toContain(
+      "https://www.googleapis.com/auth/calendar",
+    );
+  });
+
+  it("only adds workspace write scopes during forced re-consent", () => {
+    expect(() =>
+      buildGoogleAuthUrl({
+        clientId: "my-client-id",
+        redirectUri: "http://localhost:12009/integrations/google/callback",
+        state: "test-state",
+        codeChallenge: "test-challenge",
+        workspaceScopes: ["calendar.events"],
+      }),
+    ).toThrow("forced re-consent");
+
+    const authUrl = buildGoogleAuthUrl({
+      clientId: "my-client-id",
+      redirectUri: "http://localhost:12009/integrations/google/callback",
+      state: "test-state",
+      codeChallenge: "test-challenge",
+      workspaceScopes: ["calendar.events"],
+      forcePrompt: true,
+    });
+    expect(new URL(authUrl).searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/calendar.events",
+    );
   });
 
   it("returns 401 when accessing status without authentication", async () => {
     const { auth } = await import("@/auth");
     (auth.api.getSession as any).mockResolvedValue(null);
 
-    const res = await fetch(`${baseUrl}/api/oauth/google/status`);
+    const res = await fetch(`${baseUrl}/integrations/google/status`);
     expect(res.status).toBe(401);
   });
 
@@ -136,7 +171,7 @@ describe("Google OAuth Core & Routes", () => {
       user: { id: "user-123", email: "user@test.com" },
     });
 
-    const res = await fetch(`${baseUrl}/api/oauth/google/status`);
+    const res = await fetch(`${baseUrl}/integrations/google/status`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ connected: false });
@@ -148,7 +183,7 @@ describe("Google OAuth Core & Routes", () => {
       user: { id: "user-123", email: "user@test.com" },
     });
 
-    const res = await fetch(`${baseUrl}/api/oauth/google/connect?json=true`);
+    const res = await fetch(`${baseUrl}/integrations/google/connect?json=true`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { url: string };
     expect(body.url).toContain("https://accounts.google.com/o/oauth2/v2/auth");
@@ -157,24 +192,96 @@ describe("Google OAuth Core & Routes", () => {
 
   it("rejects callback with invalid or expired state", async () => {
     const res = await fetch(
-      `${baseUrl}/api/oauth/google/callback?code=some-code&state=invalid-state`,
+      `${baseUrl}/integrations/google/callback?code=some-code&state=invalid-state`,
     );
     expect(res.status).toBe(400);
     const text = await res.text();
     expect(text).toContain("Invalid, expired, or already used OAuth state");
   });
 
-  it("disconnects active user connection on POST /disconnect", async () => {
+  it("disconnects active user connection on required POST route", async () => {
     const { auth } = await import("@/auth");
     (auth.api.getSession as any).mockResolvedValue({
       user: { id: "user-123", email: "user@test.com" },
     });
 
-    const res = await fetch(`${baseUrl}/api/oauth/google/disconnect`, {
+    const res = await fetch(`${baseUrl}/integrations/google/disconnect`, {
       method: "POST",
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ success: true });
+  });
+
+  it("deletes local credentials when Google revoke fails", async () => {
+    const { auth } = await import("@/auth");
+    const { googleConnectionsRepository } = await import("@/db/repositories");
+    (auth.api.getSession as any).mockResolvedValue({
+      user: { id: "user-123", email: "user@test.com" },
+    });
+    (googleConnectionsRepository.getDecryptedTokens as any).mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    const realFetch = globalThis.fetch;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        if (String(input) === "https://oauth2.googleapis.com/revoke") {
+          throw new Error("network unavailable");
+        }
+        return realFetch(input, init);
+      });
+
+    const res = await fetch(`${baseUrl}/integrations/google/disconnect`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    expect(googleConnectionsRepository.deleteByUserId).toHaveBeenCalledWith(
+      "user-123",
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("starts forced re-consent only through POST /integrations/google/reconnect", async () => {
+    const { auth } = await import("@/auth");
+    (auth.api.getSession as any).mockResolvedValue({
+      user: { id: "user-123", email: "user@test.com" },
+    });
+
+    const res = await fetch(`${baseUrl}/integrations/google/reconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceScopes: ["calendar.events"] }),
+      redirect: "manual",
+    });
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    const url = new URL(location ?? "");
+    expect(url.searchParams.get("prompt")).toContain("consent");
+    expect(url.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/calendar.events",
+    );
+  });
+
+  it("does not include token exchange error content in thrown errors", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response('{"error_description":"token-value-must-not-leak"}', {
+        status: 400,
+      }),
+    );
+
+    await expect(
+      exchangeGoogleCode({
+        code: "authorization-code",
+        codeVerifier: "code-verifier",
+        redirectUri: "http://localhost/integrations/google/callback",
+        clientId: "client-id",
+        clientSecret: "client-secret",
+      }),
+    ).rejects.toThrow("Google token exchange failed with status 400");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    fetchSpy.mockRestore();
   });
 });

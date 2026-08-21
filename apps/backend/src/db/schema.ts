@@ -621,6 +621,7 @@ export const googleConnectionsTable = pgTable(
     access_token_expires_at: timestamp("access_token_expires_at", {
       withTimezone: true,
     }),
+    revoked_at: timestamp("revoked_at", { withTimezone: true }),
     created_at: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

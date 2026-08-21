@@ -10,27 +10,21 @@ describe("Google Connections & OAuth State Repositories", () => {
 
   describe("GoogleOAuthStateRepository", () => {
     it("creates, consumes (one-time), and checks expiry", async () => {
-      const stateMap = new Map<string, any>();
+      const record = {
+        state: "test-state",
+        user_id: "user-1",
+        code_verifier: "verifier-1",
+        redirect_uri: "http://localhost/callback",
+        expires_at: new Date(Date.now() + 60000),
+      };
+      const returning = vi.fn(async () => [record]);
+      const where = vi.fn(() => ({ returning }));
       const mockDb = {
         insert: () => ({
-          values: async (data: any) => {
-            stateMap.set(data.state, data);
-          },
-        }),
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              limit: async () => {
-                const item = stateMap.get("test-state");
-                return item ? [item] : [];
-              },
-            }),
-          }),
+          values: async () => undefined,
         }),
         delete: () => ({
-          where: async () => {
-            stateMap.delete("test-state");
-          },
+          where,
         }),
       };
 
@@ -47,11 +41,11 @@ describe("Google Connections & OAuth State Repositories", () => {
         expires_at: new Date(Date.now() + 60000),
       });
 
-      expect(stateMap.has("test-state")).toBe(true);
-
       const consumed = await repo.consumeState("test-state");
       expect(consumed?.code_verifier).toBe("verifier-1");
-      expect(stateMap.has("test-state")).toBe(false); // One-time use: deleted
+      expect(mockDb).not.toHaveProperty("select");
+      expect(where).toHaveBeenCalledOnce();
+      expect(returning).toHaveBeenCalledOnce();
     });
   });
 
@@ -120,6 +114,13 @@ describe("Google Connections & OAuth State Repositories", () => {
       expect(status.email).toBe("test@gmail.com");
       expect((status as any).accessToken).toBeUndefined();
       expect((status as any).encrypted_access_token).toBeUndefined();
+
+      storedRecord.revoked_at = new Date();
+      expect(await repo.getDecryptedTokens("user-42")).toBeNull();
+      expect(await repo.getStatus("user-42")).toMatchObject({
+        connected: false,
+        revokedAt: storedRecord.revoked_at,
+      });
     });
   });
 });
