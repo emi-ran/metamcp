@@ -13,6 +13,27 @@ import logger from "@/utils/logger";
 import { db } from "../index";
 import { mcpServersTable } from "../schema";
 
+// Helper function to normalize MCP server input for database constraints
+function normalizeMcpServerData<T extends Partial<McpServerCreateInput>>(
+  input: T,
+): T {
+  const normalized = { ...input };
+
+  // For SSE, STREAMABLE_HTTP, and VIRTUAL servers, command must be null
+  // PostgreSQL mcp_servers_url_check constraint rejects empty string / non-null command
+  if (
+    normalized.type === "SSE" ||
+    normalized.type === "STREAMABLE_HTTP" ||
+    normalized.type === "VIRTUAL"
+  ) {
+    if (normalized.command !== undefined) {
+      normalized.command = null;
+    }
+  }
+
+  return normalized;
+}
+
 // Helper function to handle PostgreSQL errors
 function handleDatabaseError(
   error: unknown,
@@ -67,9 +88,10 @@ function handleDatabaseError(
 export class McpServersRepository {
   async create(input: McpServerCreateInput): Promise<DatabaseMcpServer> {
     try {
+      const normalizedInput = normalizeMcpServerData(input);
       const [createdServer] = await db
         .insert(mcpServersTable)
-        .values(input)
+        .values(normalizedInput)
         .returning();
 
       return createdServer;
@@ -171,11 +193,12 @@ export class McpServersRepository {
     input: McpServerUpdateInput,
   ): Promise<DatabaseMcpServer | undefined> {
     const { uuid, ...updateData } = input;
+    const normalizedData = normalizeMcpServerData(updateData);
 
     try {
       const [updatedServer] = await db
         .update(mcpServersTable)
-        .set(updateData)
+        .set(normalizedData)
         .where(eq(mcpServersTable.uuid, uuid))
         .returning();
 
@@ -189,7 +212,11 @@ export class McpServersRepository {
     servers: McpServerCreateInput[],
   ): Promise<DatabaseMcpServer[]> {
     try {
-      return await db.insert(mcpServersTable).values(servers).returning();
+      const normalizedServers = servers.map((s) => normalizeMcpServerData(s));
+      return await db
+        .insert(mcpServersTable)
+        .values(normalizedServers)
+        .returning();
     } catch (error: unknown) {
       // For bulk operations, we don't have a specific server name to report
       // Extract the actual PostgreSQL error from Drizzle's error structure

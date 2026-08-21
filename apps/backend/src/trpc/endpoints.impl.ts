@@ -131,7 +131,7 @@ export const endpointsImplementations = {
             type: "STREAMABLE_HTTP",
             url: endpointUrl,
             bearerToken: bearerToken,
-            command: "",
+            command: null,
             args: [],
             env: {},
             user_id: effectiveUserId,
