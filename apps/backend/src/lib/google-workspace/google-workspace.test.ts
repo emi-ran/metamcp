@@ -53,6 +53,11 @@ const expectedToolNames = [
   "gmail_create_draft",
   "gmail_update_draft",
   "gmail_delete_draft",
+  "gmail_send",
+  "gmail_reply",
+  "gmail_reply_all",
+  "gmail_forward",
+  "gmail_send_draft",
   "calendar_list_calendars",
   "calendar_list_events",
   "calendar_get_event",
@@ -182,6 +187,11 @@ describe("Google Workspace catalog", () => {
       "gmail_create_draft",
       "gmail_update_draft",
       "gmail_delete_draft",
+      "gmail_send",
+      "gmail_reply",
+      "gmail_reply_all",
+      "gmail_forward",
+      "gmail_send_draft",
       "calendar_create_event",
       "calendar_update_event",
       "calendar_delete_event",
@@ -369,6 +379,9 @@ describe("GoogleWorkspaceClient", () => {
           { name: "Subject", value: "Hello" },
           { name: "From", value: "sender@example.test" },
           { name: "To", value: "receiver@example.test" },
+          { name: "Reply-To", value: "replyto@example.test" },
+          { name: "References", value: "<ref1@example.test>" },
+          { name: "Message-ID", value: "<m1@example.test>" },
         ],
         parts: [
           {
@@ -399,6 +412,9 @@ describe("GoogleWorkspaceClient", () => {
       threadId: "t1",
       subject: "Hello",
       from: "sender@example.test",
+      replyTo: "replyto@example.test",
+      references: "<ref1@example.test>",
+      messageId: "<m1@example.test>",
       text: "hello",
       attachments: [
         {
@@ -416,7 +432,17 @@ describe("GoogleWorkspaceClient", () => {
       }),
     ).resolves.toMatchObject({
       id: "t1",
-      messages: [{ id: "m1", subject: "Hello", text: "hello" }],
+      messages: [
+        {
+          id: "m1",
+          subject: "Hello",
+          from: "sender@example.test",
+          replyTo: "replyto@example.test",
+          references: "<ref1@example.test>",
+          messageId: "<m1@example.test>",
+          text: "hello",
+        },
+      ],
     });
   });
 
@@ -1081,7 +1107,425 @@ describe("GoogleWorkspaceClient", () => {
     }
   });
 
-  it("annotates Phase 2 tools accurately for destructive and idempotent hints", () => {
+  it("enforces exact gmail.send scope for outbound delivery tools", async () => {
+    const { client } = clientWith(
+      [],
+      [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose",
+      ],
+    );
+
+    for (const toolName of [
+      "gmail_send",
+      "gmail_reply",
+      "gmail_reply_all",
+      "gmail_forward",
+      "gmail_send_draft",
+    ]) {
+      await expect(
+        client.execute({
+          userId: "request-user",
+          toolName,
+          allowWrites: true,
+          arguments: {
+            messageId: "m1",
+            draftId: "d1",
+            to: ["a@b.c"],
+            bodyText: "test",
+          },
+        }),
+      ).rejects.toEqual(
+        new GoogleWorkspaceError(
+          "FORBIDDEN",
+          'Google connection lacks required scope. Reconnect and explicitly select "gmail.send".',
+        ),
+      );
+    }
+  });
+
+  it("maps Phase 3 outbound delivery tools to exact endpoints, methods, payloads, and threading metadata", async () => {
+    const originalMessage = {
+      id: "orig-123",
+      threadId: "thread-456",
+      payload: {
+        headers: [
+          { name: "Subject", value: "Project update" },
+          { name: "From", value: "Alice Smith <alice@example.test>" },
+          { name: "To", value: "Bob <bob@example.test>, Carol <carol@example.test>" },
+          { name: "Cc", value: "Dave <dave@example.test>" },
+          { name: "Reply-To", value: "Alice Support <support@example.test>" },
+          { name: "Message-ID", value: "<msg-orig-123@example.test>" },
+          { name: "References", value: "<root-msg@example.test>" },
+        ],
+        body: { size: 0 },
+      },
+    };
+
+    const userProfile = {
+      emailAddress: "bob@example.test",
+    };
+
+    const { client, http } = clientWith(
+      [
+        // gmail_send
+        new Response(JSON.stringify({ id: "sent-1", threadId: "thread-1" })),
+        // gmail_reply: fetch original, fetch profile, send
+        new Response(JSON.stringify(originalMessage)),
+        new Response(JSON.stringify(userProfile)),
+        new Response(JSON.stringify({ id: "reply-1", threadId: "thread-456" })),
+        // gmail_reply_all: fetch original, fetch profile, send
+        new Response(JSON.stringify(originalMessage)),
+        new Response(JSON.stringify(userProfile)),
+        new Response(JSON.stringify({ id: "reply-all-1", threadId: "thread-456" })),
+        // gmail_forward: fetch original, send
+        new Response(JSON.stringify(originalMessage)),
+        new Response(JSON.stringify({ id: "fwd-1", threadId: "thread-456" })),
+        // gmail_send_draft
+        new Response(JSON.stringify({ id: "draft-sent-1", threadId: "thread-789" })),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.send"],
+    );
+
+    // 1. gmail_send
+    const sendRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_send",
+      allowWrites: true,
+      arguments: {
+        to: ["target@example.test"],
+        cc: ["cc@example.test"],
+        bcc: ["bcc@example.test"],
+        subject: "Direct Send",
+        bodyText: "Plain send body",
+        bodyHtml: "<p>HTML send body</p>",
+      },
+    });
+    expect(sendRes).toEqual({ id: "sent-1", threadId: "thread-1" });
+
+    // 2. gmail_reply
+    const replyRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_reply",
+      allowWrites: true,
+      arguments: {
+        messageId: "orig-123",
+        bodyText: "Replying to support address",
+      },
+    });
+    expect(replyRes).toEqual({ id: "reply-1", threadId: "thread-456" });
+
+    // 3. gmail_reply_all
+    const replyAllRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_reply_all",
+      allowWrites: true,
+      arguments: {
+        messageId: "orig-123",
+        bodyText: "Replying all without self",
+      },
+    });
+    expect(replyAllRes).toEqual({ id: "reply-all-1", threadId: "thread-456" });
+
+    // 4. gmail_forward
+    const forwardRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_forward",
+      allowWrites: true,
+      arguments: {
+        messageId: "orig-123",
+        to: ["forward-target@example.test"],
+        bodyText: "FYI forwarded",
+      },
+    });
+    expect(forwardRes).toEqual({ id: "fwd-1", threadId: "thread-456" });
+
+    // 5. gmail_send_draft
+    const sendDraftRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_send_draft",
+      allowWrites: true,
+      arguments: {
+        draftId: "draft-999",
+      },
+    });
+    expect(sendDraftRes).toEqual({ id: "draft-sent-1", threadId: "thread-789" });
+
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(10);
+
+    // Call 0: send
+    expect(calls[0][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send");
+    expect(calls[0][1].method).toBe("POST");
+    const sendBody = JSON.parse(String(calls[0][1].body));
+    const decodedSend = Buffer.from(sendBody.raw, "base64url").toString("utf8");
+    expect(decodedSend).toContain("To: target@example.test");
+    expect(decodedSend).toContain("Cc: cc@example.test");
+    expect(decodedSend).toContain("Bcc: bcc@example.test");
+    expect(decodedSend).toContain("Subject: Direct Send");
+    expect(decodedSend).toContain("Plain send body");
+    expect(decodedSend).toContain("<p>HTML send body</p>");
+
+    // Call 1 & 2 & 3: reply
+    expect(calls[1][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/orig-123?format=full");
+    expect(calls[2][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/profile");
+    expect(calls[3][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send");
+    const replyBody = JSON.parse(String(calls[3][1].body));
+    expect(replyBody.threadId).toBe("thread-456");
+    const decodedReply = Buffer.from(replyBody.raw, "base64url").toString("utf8");
+    expect(decodedReply).toContain("To: Alice Support <support@example.test>");
+    expect(decodedReply).toContain("Subject: Re: Project update");
+    expect(decodedReply).toContain("In-Reply-To: <msg-orig-123@example.test>");
+    expect(decodedReply).toContain("References: <root-msg@example.test> <msg-orig-123@example.test>");
+    expect(decodedReply).toContain("Replying to support address");
+
+    // Call 4 & 5 & 6: reply_all
+    expect(calls[4][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/orig-123?format=full");
+    expect(calls[5][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/profile");
+    expect(calls[6][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send");
+    const replyAllBody = JSON.parse(String(calls[6][1].body));
+    expect(replyAllBody.threadId).toBe("thread-456");
+    const decodedReplyAll = Buffer.from(replyAllBody.raw, "base64url").toString("utf8");
+    expect(decodedReplyAll).toContain("To: Alice Support <support@example.test>, Carol <carol@example.test>");
+    expect(decodedReplyAll).not.toContain("Bob <bob@example.test>");
+    expect(decodedReplyAll).toContain("Cc: Dave <dave@example.test>");
+    expect(decodedReplyAll).toContain("Subject: Re: Project update");
+    expect(decodedReplyAll).toContain("In-Reply-To: <msg-orig-123@example.test>");
+
+    // Call 7 & 8: forward
+    expect(calls[7][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/orig-123?format=full");
+    expect(calls[8][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send");
+    const fwdBody = JSON.parse(String(calls[8][1].body));
+    expect(fwdBody.threadId).toBe("thread-456");
+    const decodedFwd = Buffer.from(fwdBody.raw, "base64url").toString("utf8");
+    expect(decodedFwd).toContain("To: forward-target@example.test");
+    expect(decodedFwd).toContain("Subject: Fwd: Project update");
+    expect(decodedFwd).toContain("References: <msg-orig-123@example.test>");
+    expect(decodedFwd).toContain("FYI forwarded");
+    expect(decodedFwd).toContain("---------- Forwarded message ---------");
+    expect(decodedFwd).toContain("From: Alice Smith <alice@example.test>");
+    expect(decodedFwd).toContain("Subject: Project update");
+
+    // Call 9: send_draft
+    expect(calls[9][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/drafts/send");
+    expect(calls[9][1].method).toBe("POST");
+    expect(JSON.parse(String(calls[9][1].body))).toEqual({ id: "draft-999" });
+  });
+
+  it("rejects send/reply/forward with invalid recipient, CRLF injection, empty recipients, or missing bodies", async () => {
+    const { client } = clientWith(
+      [
+        new Response(
+          JSON.stringify({
+            id: "orig-1",
+            payload: { headers: [{ name: "Subject", value: "Test" }], body: { size: 0 } },
+          }),
+        ),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.send"],
+    );
+
+    // Send without recipient
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_send",
+        allowWrites: true,
+        arguments: {
+          to: [],
+          subject: "Test",
+          bodyText: "Content",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+    // Send without body
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_send",
+        allowWrites: true,
+        arguments: {
+          to: ["alice@example.test"],
+          subject: "Test",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+    // Send with CRLF in to
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_send",
+        allowWrites: true,
+        arguments: {
+          to: ["alice@example.test\r\nBcc: evil@example.test"],
+          bodyText: "Content",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+    // Send with CRLF in subject
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_send",
+        allowWrites: true,
+        arguments: {
+          to: ["alice@example.test"],
+          subject: "Test\r\nInjected: yes",
+          bodyText: "Content",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+    // Forward without to
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_forward",
+        allowWrites: true,
+        arguments: {
+          messageId: "orig-1",
+          to: [],
+          bodyText: "Content",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+
+  it("rejects reply-all when all candidate recipients match authenticated sender", async () => {
+    const originalMessage = {
+      id: "orig-self",
+      threadId: "thread-self",
+      payload: {
+        headers: [
+          { name: "Subject", value: "Notes to myself" },
+          { name: "From", value: "self@example.test" },
+          { name: "To", value: "self@example.test" },
+        ],
+        body: { size: 0 },
+      },
+    };
+
+    const userProfile = {
+      emailAddress: "self@example.test",
+    };
+
+    const { client, http } = clientWith(
+      [
+        new Response(JSON.stringify(originalMessage)),
+        new Response(JSON.stringify(userProfile)),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.send"],
+    );
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_reply_all",
+        allowWrites: true,
+        arguments: {
+          messageId: "orig-self",
+          bodyText: "Reply to myself",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+      message: "No valid recipients remain for reply-all after excluding authenticated sender",
+    });
+
+    // Verify no send call was made (only fetch original and fetch profile)
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).toContain("/messages/orig-self");
+    expect(calls[1][0]).toContain("/profile");
+  });
+
+  it("truncates oversized forwarded source content safely using UTF-8 bounds and appends marker", async () => {
+    const hugeText = "A".repeat(150 * 1024); // 150 KiB text > 100 KiB limit
+    const originalMessage = {
+      id: "orig-huge",
+      threadId: "thread-huge",
+      payload: {
+        headers: [
+          { name: "Subject", value: "Huge message" },
+          { name: "From", value: "alice@example.test" },
+          { name: "To", value: "bob@example.test" },
+          { name: "Date", value: "Fri, 21 Aug 2026 12:00:00 GMT" },
+          { name: "Message-ID", value: "<huge-msg@example.test>" },
+        ],
+        parts: [
+          {
+            mimeType: "text/plain",
+            body: { data: Buffer.from(hugeText, "utf8").toString("base64url"), size: hugeText.length },
+          },
+        ],
+      },
+    };
+
+    const { client, http } = clientWith(
+      [
+        new Response(JSON.stringify(originalMessage)),
+        new Response(JSON.stringify({ id: "sent-fwd-huge", threadId: "thread-huge" })),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.send"],
+    );
+
+    const fwdRes = await client.execute({
+      userId: "request-user",
+      toolName: "gmail_forward",
+      allowWrites: true,
+      arguments: {
+        messageId: "orig-huge",
+        to: ["target@example.test"],
+        bodyText: "Prefaced note",
+      },
+    });
+
+    expect(fwdRes).toEqual({ id: "sent-fwd-huge", threadId: "thread-huge" });
+
+    const calls = (http.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1][0]).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send");
+
+    const sendBody = JSON.parse(String(calls[1][1].body));
+    const decodedFwd = Buffer.from(sendBody.raw, "base64url").toString("utf8");
+
+    expect(decodedFwd).toContain("Prefaced note");
+    expect(decodedFwd).toContain("---------- Forwarded message ---------");
+    expect(decodedFwd).toContain("[... source content truncated ...]");
+
+    // The appended raw body size must stay safely bounded (around 100 KiB + preface/headers, not 150 KiB)
+    expect(Buffer.byteLength(decodedFwd, "utf8")).toBeLessThan(110 * 1024);
+  });
+
+  it("ensures outbound delivery requests are not retried on transient errors", async () => {
+    const { client, http } = clientWith(
+      [
+        new Response("Gateway Timeout", { status: 504 }),
+      ],
+      [...allScopes, "https://www.googleapis.com/auth/gmail.send"],
+    );
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_send",
+        allowWrites: true,
+        arguments: {
+          to: ["alice@example.test"],
+          subject: "Test",
+          bodyText: "Content",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "UPSTREAM" });
+
+    expect((http.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it("annotates Phase 2 and Phase 3 tools accurately for destructive and idempotent hints", () => {
     const annotations = Object.fromEntries(
       GOOGLE_WORKSPACE_TOOLS.map((tool) => [tool.name, tool.annotations]),
     );
@@ -1124,6 +1568,31 @@ describe("GoogleWorkspaceClient", () => {
     expect(annotations.gmail_delete_draft).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_send).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_reply).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_reply_all).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_forward).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+    expect(annotations.gmail_send_draft).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
       idempotentHint: false,
     });
   });

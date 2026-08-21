@@ -6,6 +6,9 @@ export const GOOGLE_WORKSPACE_SERVER_UUID =
   "00000000-0000-4000-8000-000000000021";
 export const GOOGLE_WORKSPACE_DEFAULT_TOOL_STATUS = "INACTIVE" as const;
 export const MAX_GMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_GMAIL_FORWARD_SOURCE_BYTES = 100 * 1024;
+export const MAX_GMAIL_FORWARD_METADATA_FIELD_BYTES = 1024;
+export const GMAIL_FORWARD_TRUNCATION_MARKER = "\n[... source content truncated ...]";
 export const MAX_DRIVE_DOWNLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_DRIVE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -17,6 +20,7 @@ const scopes = {
   gmailRead: "https://www.googleapis.com/auth/gmail.readonly",
   gmailModify: "https://www.googleapis.com/auth/gmail.modify",
   gmailCompose: "https://www.googleapis.com/auth/gmail.compose",
+  gmailSend: "https://www.googleapis.com/auth/gmail.send",
   calendarRead: "https://www.googleapis.com/auth/calendar.readonly",
   calendarWrite: "https://www.googleapis.com/auth/calendar.events",
   driveRead: "https://www.googleapis.com/auth/drive.readonly",
@@ -345,6 +349,64 @@ export const GOOGLE_WORKSPACE_TOOLS: Tool[] = [
     { draftId: { type: "string" } },
     ["draftId"],
     { write: true, destructive: true },
+  ),
+  tool(
+    "gmail_send",
+    "Send a new email using structured fields. Active policy mapping and gmail.send re-consent required.",
+    {
+      to: stringArray(100),
+      cc: stringArray(100),
+      bcc: stringArray(100),
+      subject: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+    },
+    ["to"],
+    { write: true },
+  ),
+  tool(
+    "gmail_reply",
+    "Reply to a message sender using structured fields. Active policy mapping and gmail.send re-consent required.",
+    {
+      messageId: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+    },
+    ["messageId"],
+    { write: true },
+  ),
+  tool(
+    "gmail_reply_all",
+    "Reply to all recipients and original sender of a message. Active policy mapping and gmail.send re-consent required.",
+    {
+      messageId: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+    },
+    ["messageId"],
+    { write: true },
+  ),
+  tool(
+    "gmail_forward",
+    "Forward an existing message to explicit recipients. Active policy mapping and gmail.send re-consent required.",
+    {
+      messageId: { type: "string" },
+      to: stringArray(100),
+      cc: stringArray(100),
+      bcc: stringArray(100),
+      subject: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+    },
+    ["messageId", "to"],
+    { write: true },
+  ),
+  tool(
+    "gmail_send_draft",
+    "Send an existing Gmail draft by draft ID. Effectful non-idempotent operation. Active policy mapping and gmail.send re-consent required.",
+    { draftId: { type: "string" } },
+    ["draftId"],
+    { write: true },
   ),
   tool("calendar_list_calendars", "List Google calendars."),
   tool(
@@ -876,13 +938,69 @@ function validateLabelColor(value: unknown): { textColor?: string; backgroundCol
   return { textColor, backgroundColor };
 }
 
-function buildRfc2822Draft(args: Record<string, unknown>): string {
-  const to = args.to !== undefined ? requiredStringArray(args, "to", 100) : [];
-  const cc = args.cc !== undefined ? requiredStringArray(args, "cc", 100) : undefined;
-  const bcc = args.bcc !== undefined ? requiredStringArray(args, "bcc", 100) : undefined;
-  const subject = args.subject !== undefined ? requiredStringAllowEmpty(args, "subject") : "";
-  const bodyText = typeof args.bodyText === "string" ? args.bodyText : undefined;
-  const bodyHtml = typeof args.bodyHtml === "string" ? args.bodyHtml : undefined;
+function extractEmailAddress(raw: string): string {
+  const match = raw.match(/<([^>]+)>/);
+  if (match && match[1]) {
+    return match[1].trim().toLowerCase();
+  }
+  return raw.trim().toLowerCase();
+}
+
+function parseEmailAddresses(raw: string): string[] {
+  if (!raw || typeof raw !== "string") return [];
+  const results: string[] = [];
+  const parts = raw.split(/,\s*(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.length > 0) {
+      results.push(trimmed);
+    }
+  }
+  return results;
+}
+
+function truncateUtf8(value: string, maxBytes: number, marker = ""): string {
+  const buf = Buffer.from(value, "utf8");
+  if (buf.length <= maxBytes) return value;
+  const markerBuf = Buffer.from(marker, "utf8");
+  const targetBytes = Math.max(0, maxBytes - markerBuf.length);
+
+  let sliceLength = targetBytes;
+  while (sliceLength > 0 && (buf[sliceLength] & 0xc0) === 0x80) {
+    sliceLength -= 1;
+  }
+  return buf.subarray(0, sliceLength).toString("utf8") + marker;
+}
+
+function normalizeSubjectPrefix(prefix: "Re:" | "Fwd:", subject: string): string {
+  const cleaned = subject.replace(/^(re|fwd):\s*/i, "").trim();
+  return `${prefix} ${cleaned}`.trim();
+}
+
+function buildRfc2822Message(input: {
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  inReplyTo?: string;
+  references?: string;
+  requireTo?: boolean;
+}): string {
+  const to = input.to ?? [];
+  const cc = input.cc;
+  const bcc = input.bcc;
+  const subject = input.subject ?? "";
+  const bodyText = input.bodyText;
+  const bodyHtml = input.bodyHtml;
+
+  if (input.requireTo && to.length === 0) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      "to is required and must contain at least one recipient",
+    );
+  }
 
   if (!bodyText && !bodyHtml) {
     throw new GoogleWorkspaceError(
@@ -895,12 +1013,16 @@ function buildRfc2822Draft(args: Record<string, unknown>): string {
   if (cc && cc.length > 0) validateEmailList(cc, "cc");
   if (bcc && bcc.length > 0) validateEmailList(bcc, "bcc");
   validateHeaderField(subject, "subject");
+  if (input.inReplyTo) validateHeaderField(input.inReplyTo, "In-Reply-To");
+  if (input.references) validateHeaderField(input.references, "References");
 
   const headers: string[] = [];
   if (to.length > 0) headers.push(`To: ${to.join(", ")}`);
   if (cc && cc.length > 0) headers.push(`Cc: ${cc.join(", ")}`);
   if (bcc && bcc.length > 0) headers.push(`Bcc: ${bcc.join(", ")}`);
   if (subject) headers.push(`Subject: ${subject}`);
+  if (input.inReplyTo) headers.push(`In-Reply-To: ${input.inReplyTo}`);
+  if (input.references) headers.push(`References: ${input.references}`);
   headers.push("MIME-Version: 1.0");
 
   let mimeContent = "";
@@ -935,6 +1057,25 @@ function buildRfc2822Draft(args: Record<string, unknown>): string {
   }
 
   return Buffer.from(mimeContent, "utf8").toString("base64url");
+}
+
+function buildRfc2822Draft(args: Record<string, unknown>): string {
+  const to = args.to !== undefined ? requiredStringArray(args, "to", 100) : [];
+  const cc = args.cc !== undefined ? requiredStringArray(args, "cc", 100) : undefined;
+  const bcc = args.bcc !== undefined ? requiredStringArray(args, "bcc", 100) : undefined;
+  const subject = args.subject !== undefined ? requiredStringAllowEmpty(args, "subject") : "";
+  const bodyText = typeof args.bodyText === "string" ? args.bodyText : undefined;
+  const bodyHtml = typeof args.bodyHtml === "string" ? args.bodyHtml : undefined;
+
+  return buildRfc2822Message({
+    to,
+    cc,
+    bcc,
+    subject,
+    bodyText,
+    bodyHtml,
+    requireTo: false,
+  });
 }
 
 function parseGmailDraft(draft: Record<string, unknown>) {
@@ -980,6 +1121,15 @@ function requiredScope(toolName: string): ScopeRequirement {
       toolName === "gmail_delete_draft"
     ) {
       return { anyOf: [scopes.gmailCompose], guidance: '"gmail.compose"' };
+    }
+    if (
+      toolName === "gmail_send" ||
+      toolName === "gmail_reply" ||
+      toolName === "gmail_reply_all" ||
+      toolName === "gmail_forward" ||
+      toolName === "gmail_send_draft"
+    ) {
+      return { anyOf: [scopes.gmailSend], guidance: '"gmail.send"' };
     }
     return isGoogleWorkspaceWriteTool(toolName)
       ? { anyOf: [scopes.gmailModify], guidance: '"gmail.modify"' }
@@ -1131,8 +1281,10 @@ function parseMimeMessage(message: Record<string, unknown>) {
     from: headerMap.from ?? "",
     to: headerMap.to ?? "",
     cc: headerMap.cc ?? "",
+    replyTo: headerMap["reply-to"] ?? "",
     date: headerMap.date ?? "",
     messageId: headerMap["message-id"] ?? "",
+    references: headerMap.references ?? "",
     text: (plainText.length ? plainText : htmlText).join("\n"),
     attachments,
   };
@@ -1804,6 +1956,224 @@ export class GoogleWorkspaceClient {
         `/gmail/v1/users/me/drafts/${encodePath(draftId)}`,
         "DELETE",
         undefined,
+        false,
+      );
+    }
+    if (toolName === "gmail_send") {
+      const raw = buildRfc2822Message({
+        to: requiredStringArray(args, "to", 100),
+        cc: args.cc !== undefined ? requiredStringArray(args, "cc", 100) : undefined,
+        bcc: args.bcc !== undefined ? requiredStringArray(args, "bcc", 100) : undefined,
+        subject: args.subject !== undefined ? requiredStringAllowEmpty(args, "subject") : "",
+        bodyText: typeof args.bodyText === "string" ? args.bodyText : undefined,
+        bodyHtml: typeof args.bodyHtml === "string" ? args.bodyHtml : undefined,
+        requireTo: true,
+      });
+      return json(
+        "/gmail/v1/users/me/messages/send",
+        "POST",
+        { raw },
+        false,
+      );
+    }
+    if (toolName === "gmail_reply" || toolName === "gmail_reply_all") {
+      const messageId = requiredString(args, "messageId");
+      const originalMessageRaw = (await json(
+        `/gmail/v1/users/me/messages/${encodePath(messageId)}?format=full`,
+      )) as Record<string, unknown>;
+      const orig = parseMimeMessage(originalMessageRaw);
+
+      let authEmail: string | undefined;
+      try {
+        const profile = (await json("/gmail/v1/users/me/profile")) as Record<string, unknown>;
+        if (typeof profile.emailAddress === "string" && profile.emailAddress.length > 0) {
+          authEmail = profile.emailAddress.trim().toLowerCase();
+        }
+      } catch {
+        // Fallback if profile endpoint fails or is inaccessible
+      }
+
+      const replyToAddress = orig.replyTo && orig.replyTo.trim().length > 0 ? orig.replyTo : orig.from;
+      if (!replyToAddress || replyToAddress.trim().length === 0) {
+        throw new GoogleWorkspaceError(
+          "INVALID_ARGUMENT",
+          "Original message has no valid From or Reply-To recipient",
+        );
+      }
+
+      let toRecipients: string[] = [];
+      let ccRecipients: string[] | undefined = undefined;
+
+      if (toolName === "gmail_reply") {
+        toRecipients = parseEmailAddresses(replyToAddress);
+      } else {
+        // reply-all: deduplicate original sender + to + cc, excluding authenticated user
+        const seenAddresses = new Set<string>();
+        const candidateToList = [
+          ...parseEmailAddresses(replyToAddress),
+          ...parseEmailAddresses(orig.to),
+        ];
+        for (const item of candidateToList) {
+          const email = extractEmailAddress(item);
+          if (authEmail && email === authEmail) continue;
+          if (!seenAddresses.has(email)) {
+            seenAddresses.add(email);
+            toRecipients.push(item);
+          }
+        }
+        if (toRecipients.length === 0) {
+          throw new GoogleWorkspaceError(
+            "INVALID_ARGUMENT",
+            "No valid recipients remain for reply-all after excluding authenticated sender",
+          );
+        }
+
+        const candidateCcList = parseEmailAddresses(orig.cc);
+        const deduplicatedCc: string[] = [];
+        for (const item of candidateCcList) {
+          const email = extractEmailAddress(item);
+          if (authEmail && email === authEmail) continue;
+          if (!seenAddresses.has(email)) {
+            seenAddresses.add(email);
+            deduplicatedCc.push(item);
+          }
+        }
+        if (deduplicatedCc.length > 0) {
+          ccRecipients = deduplicatedCc;
+        }
+      }
+
+      const subject = normalizeSubjectPrefix("Re:", orig.subject);
+      const inReplyTo = orig.messageId ? orig.messageId : undefined;
+      const references = [orig.references, orig.messageId].filter(Boolean).join(" ").trim() || undefined;
+
+      const raw = buildRfc2822Message({
+        to: toRecipients,
+        cc: ccRecipients,
+        subject,
+        bodyText: typeof args.bodyText === "string" ? args.bodyText : undefined,
+        bodyHtml: typeof args.bodyHtml === "string" ? args.bodyHtml : undefined,
+        inReplyTo,
+        references,
+        requireTo: true,
+      });
+
+      const requestBody: { raw: string; threadId?: string } = {
+        raw,
+        ...(orig.threadId ? { threadId: orig.threadId } : {}),
+      };
+
+      return json(
+        "/gmail/v1/users/me/messages/send",
+        "POST",
+        requestBody,
+        false,
+      );
+    }
+    if (toolName === "gmail_forward") {
+      const messageId = requiredString(args, "messageId");
+      const originalMessageRaw = (await json(
+        `/gmail/v1/users/me/messages/${encodePath(messageId)}?format=full`,
+      )) as Record<string, unknown>;
+      const orig = parseMimeMessage(originalMessageRaw);
+
+      const to = requiredStringArray(args, "to", 100);
+      const cc = args.cc !== undefined ? requiredStringArray(args, "cc", 100) : undefined;
+      const bcc = args.bcc !== undefined ? requiredStringArray(args, "bcc", 100) : undefined;
+      const subject =
+        args.subject !== undefined
+          ? requiredStringAllowEmpty(args, "subject")
+          : normalizeSubjectPrefix("Fwd:", orig.subject);
+
+      const callerBodyText = typeof args.bodyText === "string" ? args.bodyText : undefined;
+      const callerBodyHtml = typeof args.bodyHtml === "string" ? args.bodyHtml : undefined;
+
+      const origDate = truncateUtf8(
+        orig.date || "Unknown",
+        MAX_GMAIL_FORWARD_METADATA_FIELD_BYTES,
+      );
+      const origFrom = truncateUtf8(
+        orig.from || "Unknown",
+        MAX_GMAIL_FORWARD_METADATA_FIELD_BYTES,
+      );
+      const origSubject = truncateUtf8(
+        orig.subject || "No Subject",
+        MAX_GMAIL_FORWARD_METADATA_FIELD_BYTES,
+      );
+      const origTo = truncateUtf8(
+        orig.to || "",
+        MAX_GMAIL_FORWARD_METADATA_FIELD_BYTES,
+      );
+      const origText = truncateUtf8(
+        orig.text || "",
+        MAX_GMAIL_FORWARD_SOURCE_BYTES,
+        GMAIL_FORWARD_TRUNCATION_MARKER,
+      );
+
+      const forwardedBlockLines = [
+        "---------- Forwarded message ---------",
+        `From: ${origFrom}`,
+        `Date: ${origDate}`,
+        `Subject: ${origSubject}`,
+        ...(origTo ? [`To: ${origTo}`] : []),
+        "",
+        origText,
+      ];
+      const forwardedBlockText = forwardedBlockLines.join("\n");
+
+      let bodyText: string;
+      if (callerBodyText !== undefined) {
+        bodyText = callerBodyText ? `${callerBodyText}\n\n${forwardedBlockText}` : forwardedBlockText;
+      } else if (callerBodyHtml !== undefined) {
+        bodyText = forwardedBlockText;
+      } else {
+        throw new GoogleWorkspaceError(
+          "INVALID_ARGUMENT",
+          "At least one of bodyText or bodyHtml is required",
+        );
+      }
+
+      let bodyHtml: string | undefined = undefined;
+      if (callerBodyHtml !== undefined) {
+        const escapedOrigFrom = origFrom.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedOrigDate = origDate.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedOrigSubject = origSubject.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedOrigTo = origTo.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedOrigText = origText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+
+        const forwardedBlockHtml = `<div class="gmail_quote">---------- Forwarded message ---------<br><b>From:</b> ${escapedOrigFrom}<br><b>Date:</b> ${escapedOrigDate}<br><b>Subject:</b> ${escapedOrigSubject}<br>${escapedOrigTo ? `<b>To:</b> ${escapedOrigTo}<br>` : ""}<br>${escapedOrigText}</div>`;
+        bodyHtml = callerBodyHtml ? `${callerBodyHtml}<br><br>${forwardedBlockHtml}` : forwardedBlockHtml;
+      }
+
+      const raw = buildRfc2822Message({
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyText,
+        bodyHtml,
+        references: orig.messageId || undefined,
+        requireTo: true,
+      });
+
+      const requestBody: { raw: string; threadId?: string } = {
+        raw,
+        ...(orig.threadId ? { threadId: orig.threadId } : {}),
+      };
+
+      return json(
+        "/gmail/v1/users/me/messages/send",
+        "POST",
+        requestBody,
+        false,
+      );
+    }
+    if (toolName === "gmail_send_draft") {
+      const draftId = requiredString(args, "draftId");
+      return json(
+        "/gmail/v1/users/me/drafts/send",
+        "POST",
+        { id: draftId },
         false,
       );
     }

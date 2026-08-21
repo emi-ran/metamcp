@@ -78,6 +78,7 @@
   "googleWorkspaceScopeGmailRead": "Gmail (읽기 전용)",
   "googleWorkspaceScopeGmailModify": "Gmail 정리 (라벨/휴지통/스팸)",
   "googleWorkspaceScopeGmailCompose": "Gmail 임시보관함 (임시보관함 생성/수정/삭제)",
+  "googleWorkspaceScopeGmailSend": "Gmail 보내기 (메일 보내기/답장/전체 답장/전달/임시보관 메일 전송)",
   "googleWorkspaceScopeCalendarRead": "Google 캘린더 (읽기 전용)",
   "googleWorkspaceScopeCalendarEvents": "Google 캘린더 일정 (생성/수정/삭제)",
   "googleWorkspaceScopeDriveRead": "Google 드라이브 (읽기 전용)",

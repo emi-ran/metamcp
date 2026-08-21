@@ -78,6 +78,7 @@
   "googleWorkspaceScopeGmailRead": "Gmail (只读)",
   "googleWorkspaceScopeGmailModify": "Gmail 整理 (标签/废纸篓/垃圾邮件)",
   "googleWorkspaceScopeGmailCompose": "Gmail 草稿 (创建/更新/删除草稿)",
+  "googleWorkspaceScopeGmailSend": "Gmail 发送 (发送/回复/全部回复/转发/发送草稿)",
   "googleWorkspaceScopeCalendarRead": "Google 日历 (只读)",
   "googleWorkspaceScopeCalendarEvents": "Google 日历事件 (创建/更新/删除)",
   "googleWorkspaceScopeDriveRead": "Google 云端硬盘 (只读)",

@@ -78,6 +78,7 @@
   "googleWorkspaceScopeGmailRead": "Gmail (Read-only)",
   "googleWorkspaceScopeGmailModify": "Gmail Organization (Labels/Trash/Spam)",
   "googleWorkspaceScopeGmailCompose": "Gmail Drafts (Create/Update/Delete Drafts)",
+  "googleWorkspaceScopeGmailSend": "Gmail Send (Send/Reply/Forward/Send Draft)",
   "googleWorkspaceScopeCalendarRead": "Google Calendar (Read-only)",
   "googleWorkspaceScopeCalendarEvents": "Google Calendar Events (Create/Update/Delete)",
   "googleWorkspaceScopeDriveRead": "Google Drive (Read-only)",

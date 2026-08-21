@@ -13,8 +13,8 @@ Do not add generic `gmail_modify`. Each operation must have a narrow, visible, a
 | OAuth: `gmail.modify` | Complete | Scope selection, forced re-consent, five locales, and tests added. |
 | Phase 1: Message and thread organization | Complete | Tools require `gmail.modify`; namespace policy stays default-deny. |
 | Phase 2: Labels and drafts | Complete | Label management uses `gmail.modify`; drafts use `gmail.compose`; structured MIME builder rejects header injection. |
-| Phase 3: Outbound delivery | Pending | Send, reply, reply-all, forward, send-draft, and `gmail.send` consent. |
-| Phase 4: Batch operations | Pending | Must remain phase-gated after normal write telemetry. |
+| Phase 3: Outbound delivery | Complete | Send, reply, reply-all, forward, send-draft, and `gmail.send` consent. |
+| Phase 4: Batch operations | Blocked | Requires production telemetry from normal write tools before design or release. |
 
 ## Current State
 

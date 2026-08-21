@@ -100,6 +100,11 @@ MetaMCP 严格遵循最小权限原则：
 | **Gmail** | `gmail_create_draft` | 写 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
 | **Gmail** | `gmail_update_draft` | 写 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
 | **Gmail** | `gmail_delete_draft` | 写 / 破坏性 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_send` | 写 | `https://www.googleapis.com/auth/gmail.send` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_reply` | 写 | `https://www.googleapis.com/auth/gmail.send` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_reply_all` | 写 | `https://www.googleapis.com/auth/gmail.send` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_forward` | 写 | `https://www.googleapis.com/auth/gmail.send` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_send_draft` | 写 | `https://www.googleapis.com/auth/gmail.send` | 是（需通过“重新连接”强制重新同意） |
 | **Calendar** | `calendar_list_calendars` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
 | **Calendar** | `calendar_list_events` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
 | **Calendar** | `calendar_get_event` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |

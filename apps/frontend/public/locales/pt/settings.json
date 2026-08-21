@@ -78,6 +78,7 @@
   "googleWorkspaceScopeGmailRead": "Gmail (Somente leitura)",
   "googleWorkspaceScopeGmailModify": "Organização do Gmail (Marcadores/Lixeira/Spam)",
   "googleWorkspaceScopeGmailCompose": "Rascunhos do Gmail (Criar/Modificar/Excluir)",
+  "googleWorkspaceScopeGmailSend": "Envio do Gmail (Enviar/Responder/Encaminhar/Enviar rascunho)",
   "googleWorkspaceScopeCalendarRead": "Google Calendar (Somente leitura)",
   "googleWorkspaceScopeCalendarEvents": "Google Calendar Eventos (Criar/Modificar/Excluir)",
   "googleWorkspaceScopeDriveRead": "Google Drive (Somente leitura)",

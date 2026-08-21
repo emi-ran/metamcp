@@ -33,6 +33,7 @@ const GOOGLE_WORKSPACE_SCOPES = {
   "gmail.readonly": "https://www.googleapis.com/auth/gmail.readonly",
   "gmail.modify": "https://www.googleapis.com/auth/gmail.modify",
   "gmail.compose": "https://www.googleapis.com/auth/gmail.compose",
+  "gmail.send": "https://www.googleapis.com/auth/gmail.send",
   "calendar.readonly": "https://www.googleapis.com/auth/calendar.readonly",
   "calendar.events": "https://www.googleapis.com/auth/calendar.events",
   "drive.readonly": "https://www.googleapis.com/auth/drive.readonly",
@@ -52,6 +53,7 @@ export const GOOGLE_WORKSPACE_SCOPE_NAMES = Object.freeze(
 const GOOGLE_WORKSPACE_WRITE_SCOPE_NAMES = new Set<GoogleWorkspaceScope>([
   "gmail.modify",
   "gmail.compose",
+  "gmail.send",
   "calendar.events",
   "drive.file",
   "documents",

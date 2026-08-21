@@ -4,6 +4,7 @@ export const GoogleWorkspaceScopeEnum = z.enum([
   "gmail.readonly",
   "gmail.modify",
   "gmail.compose",
+  "gmail.send",
   "calendar.readonly",
   "calendar.events",
   "drive.readonly",

@@ -100,6 +100,11 @@ MetaMCP enforces least-privilege scoping:
 | **Gmail** | `gmail_create_draft` | Write | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
 | **Gmail** | `gmail_update_draft` | Write | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
 | **Gmail** | `gmail_delete_draft` | Write / Destructive | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_send` | Write | `https://www.googleapis.com/auth/gmail.send` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_reply` | Write | `https://www.googleapis.com/auth/gmail.send` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_reply_all` | Write | `https://www.googleapis.com/auth/gmail.send` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_forward` | Write | `https://www.googleapis.com/auth/gmail.send` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_send_draft` | Write | `https://www.googleapis.com/auth/gmail.send` | Yes (Forced re-consent via Reconnect) |
 | **Calendar** | `calendar_list_calendars` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
 | **Calendar** | `calendar_list_events` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
 | **Calendar** | `calendar_get_event` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
