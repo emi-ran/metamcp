@@ -6,6 +6,8 @@ import {
   GoogleConnectRequest,
   GoogleReconnectRequest,
   GoogleSetDefaultRequest,
+  GoogleOAuthConfig,
+  SetGoogleOAuthConfigRequest,
 } from "@repo/zod-types";
 
 import {
@@ -20,6 +22,7 @@ import {
   type GoogleWorkspaceScope,
   revokeGoogleToken,
 } from "../routers/google-oauth/google-oauth-service";
+import { googleOAuthAdminConfigService } from "../lib/google-oauth-admin-config.service";
 import logger from "../utils/logger";
 
 export function maskEmail(email?: string | null): string | null {
@@ -42,7 +45,8 @@ async function createAuthUrl(
   options: { forcePrompt: boolean; workspaceScopes: GoogleWorkspaceScope[] },
   targetConnectionId?: string,
 ): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const credentials = await googleOAuthAdminConfigService.getCredentials();
+  const clientId = credentials.clientId;
   if (!clientId) {
     throw new Error("Google OAuth client ID not configured");
   }
@@ -154,6 +158,17 @@ export const googleIntegrationImplementations = {
     } else {
       await googleConnectionsRepository.deleteByUserId(userId);
     }
+    return { success: true };
+  },
+
+  getOAuthConfig: async (): Promise<GoogleOAuthConfig> => {
+    return await googleOAuthAdminConfigService.getMaskedConfig();
+  },
+
+  setOAuthConfig: async (
+    input: SetGoogleOAuthConfigRequest,
+  ): Promise<{ success: boolean }> => {
+    await googleOAuthAdminConfigService.setConfig(input);
     return { success: true };
   },
 };

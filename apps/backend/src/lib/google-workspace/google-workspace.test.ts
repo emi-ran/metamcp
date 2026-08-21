@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@/db/repositories", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock("../../db/repositories/config.repo", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+  },
+}));
+
 import {
   GOOGLE_WORKSPACE_DEFAULT_TOOL_STATUS,
   GOOGLE_WORKSPACE_SERVER_NAME,

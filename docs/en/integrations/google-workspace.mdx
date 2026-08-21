@@ -40,15 +40,13 @@ MetaMCP provides built-in Google Workspace integration with least-privilege OAut
    ```
 6. Click **Create** and copy the generated **Client ID** and **Client Secret**.
 
-## 2. Environment Variables & Token Encryption
+## 2. Deployment Variables, Token Encryption, and Client Setup
 
 Configure the following environment variables in your `.env` or deployment environment:
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `APP_URL` | Yes | Public base URL of your MetaMCP instance (e.g. `https://mcp.example.com`). Used to build the public OAuth callback URI. |
-| `GOOGLE_CLIENT_ID` | Yes | OAuth 2.0 Web Client ID from Google Cloud Console. |
-| `GOOGLE_CLIENT_SECRET` | Yes | OAuth 2.0 Web Client Secret from Google Cloud Console. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Conditional | 32-byte string or 64-character hex string for AES-256-GCM token encryption. Used when versioned map is not configured. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEYS` | Optional | JSON string map of version numbers to keys for seamless key rotation, e.g. `{"1":"key1_hex","2":"key2_hex"}`. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION` | Optional | Integer string specifying active key version for new encryptions when using `GOOGLE_TOKEN_ENCRYPTION_KEYS` (e.g. `"2"`). |
@@ -60,10 +58,10 @@ Configure the following environment variables in your `.env` or deployment envir
 
 ```bash .env
 APP_URL=https://mcp.example.com
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
+
+After deployment, open **Settings → Integrations → Google Workspace** and enter the Google Client ID and Client Secret. The secret is encrypted at rest with the configured token encryption key and is never returned by the API. `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` remain supported only as a backward-compatible fallback when no database configuration exists.
 
 ## 3. Exact Minimum Scopes Table
 

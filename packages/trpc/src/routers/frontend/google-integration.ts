@@ -13,6 +13,10 @@ import {
   GoogleReconnectRequestSchema,
   GoogleSetDefaultRequest,
   GoogleSetDefaultRequestSchema,
+  GoogleOAuthConfig,
+  GoogleOAuthConfigSchema,
+  SetGoogleOAuthConfigRequest,
+  SetGoogleOAuthConfigRequestSchema,
 } from "@repo/zod-types";
 
 import { protectedProcedure, router } from "../../trpc";
@@ -35,6 +39,10 @@ export const createGoogleIntegrationRouter = (implementations: {
     userId: string,
     input?: GoogleDisconnectRequest,
   ) => Promise<GoogleDisconnectResponse>;
+  getOAuthConfig: () => Promise<GoogleOAuthConfig>;
+  setOAuthConfig: (
+    input: SetGoogleOAuthConfigRequest,
+  ) => Promise<{ success: boolean }>;
 }) => {
   return router({
     getStatus: protectedProcedure
@@ -68,6 +76,18 @@ export const createGoogleIntegrationRouter = (implementations: {
       .output(GoogleDisconnectResponseSchema)
       .mutation(async ({ input, ctx }) => {
         return await implementations.disconnect(ctx.user.id, input);
+      }),
+
+    getOAuthConfig: protectedProcedure
+      .output(GoogleOAuthConfigSchema)
+      .query(async () => {
+        return await implementations.getOAuthConfig();
+      }),
+
+    setOAuthConfig: protectedProcedure
+      .input(SetGoogleOAuthConfigRequestSchema)
+      .mutation(async ({ input }) => {
+        return await implementations.setOAuthConfig(input);
       }),
   });
 };

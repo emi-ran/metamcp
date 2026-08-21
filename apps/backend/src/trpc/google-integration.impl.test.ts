@@ -73,8 +73,21 @@ vi.mock("../db/repositories", () => {
         return item;
       }),
     },
+    configRepo: {
+      getConfig: vi.fn(async () => undefined),
+      setConfig: vi.fn(async () => undefined),
+      deleteConfig: vi.fn(async () => undefined),
+    },
   };
 });
+
+vi.mock("../db/repositories/config.repo", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+    setConfig: vi.fn(async () => undefined),
+    deleteConfig: vi.fn(async () => undefined),
+  },
+}));
 
 describe("googleIntegrationImplementations", () => {
   beforeEach(() => {

@@ -10,6 +10,8 @@ export const ConfigKeyEnum = z.enum([
   "MCP_MAX_TOTAL_TIMEOUT",
   "MCP_MAX_ATTEMPTS",
   "SESSION_LIFETIME",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
 ]);
 
 // Config schema

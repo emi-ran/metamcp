@@ -40,15 +40,13 @@ MetaMCP 提供了内置的 Google Workspace 集成，采用最小权限的 OAuth
    ```
 6. 点击 **Create** 并复制生成的 **Client ID** 与 **Client Secret**。
 
-## 2. 环境变量与令牌加密配置
+## 2. 部署变量、令牌加密与客户端配置
 
 在 `.env` 或部署环境中配置以下变量：
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
 | `APP_URL` | 是 | MetaMCP 实例的公开访问基础 URL（例如 `https://mcp.example.com`），用于生成公共 OAuth 回调 URI。 |
-| `GOOGLE_CLIENT_ID` | 是 | 从 Google Cloud Console 获取的 Web OAuth Client ID。 |
-| `GOOGLE_CLIENT_SECRET` | 是 | 从 Google Cloud Console 获取的 Web OAuth Client Secret。 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | 条件必填 | 32 字节字符串或 64 字符十六进制字符串，用于 AES-256-GCM 令牌加密存储。 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEYS` | 可选 | JSON 格式的版本密钥映射，用于平滑轮换密钥，例如 `{"1":"key1_hex","2":"key2_hex"}`。 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY_VERSION` | 可选 | 使用多版本密钥时，指定新加密采用的主版本号（例如 `"2"`）。 |
@@ -60,10 +58,10 @@ MetaMCP 提供了内置的 Google Workspace 集成，采用最小权限的 OAuth
 
 ```bash .env
 APP_URL=https://mcp.example.com
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
+
+部署后，打开 **Settings → Integrations → Google Workspace**，填写 Google Client ID 与 Client Secret。Client Secret 会使用配置的令牌加密密钥进行静态加密，API 永不返回明文。当数据库中尚未配置时，`GOOGLE_CLIENT_ID` 和 `GOOGLE_CLIENT_SECRET` 仍作为向后兼容回退配置。
 
 ## 3. 最小权限范围对照表
 

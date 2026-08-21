@@ -18,6 +18,7 @@ import {
   type GoogleWorkspaceScope,
   revokeGoogleToken,
 } from "./google-oauth-service";
+import { googleOAuthAdminConfigService } from "@/lib/google-oauth-admin-config.service";
 
 const googleOAuthRouter = express.Router();
 
@@ -75,7 +76,8 @@ async function startGoogleConnect(
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const credentials = await googleOAuthAdminConfigService.getCredentials();
+    const clientId = credentials.clientId;
     if (!clientId) {
       return res
         .status(500)
@@ -213,8 +215,9 @@ googleOAuthRouter.get("/integrations/google/callback", async (req, res) => {
         .send("Invalid, expired, or already used OAuth state");
     }
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const credentials = await googleOAuthAdminConfigService.getCredentials();
+    const clientId = credentials.clientId;
+    const clientSecret = credentials.clientSecret;
 
     if (!clientId || !clientSecret) {
       return res.status(500).send("Google OAuth credentials missing on server");

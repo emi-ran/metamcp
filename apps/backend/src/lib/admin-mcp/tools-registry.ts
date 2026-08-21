@@ -13,6 +13,7 @@ import {
   GetToolsByMcpServerUuidRequestSchema,
   RefreshNamespaceToolsRequestSchema,
   SetConfigRequestSchema,
+  SetGoogleOAuthConfigRequestSchema,
   UpdateApiKeyRequestSchema,
   UpdateEndpointRequestSchema,
   UpdateMcpServerRequestSchema,
@@ -28,6 +29,7 @@ import { z } from "zod";
 
 import { apiKeysImplementations } from "../../trpc/api-keys.impl";
 import { configImplementations } from "../../trpc/config.impl";
+import { googleIntegrationImplementations } from "../../trpc/google-integration.impl";
 import { endpointsImplementations } from "../../trpc/endpoints.impl";
 import { logsImplementations } from "../../trpc/logs.impl";
 import { mcpServersImplementations } from "../../trpc/mcp-servers.impl";
@@ -451,6 +453,21 @@ export const ADMIN_TOOLS: AdminToolDefinition[] = [
     SetConfigRequestSchema,
     async (_userId, input) =>
       configImplementations.setConfig(SetConfigRequestSchema.parse(input)),
+  ),
+  defineTool(
+    "metamcp_get_google_oauth_config",
+    "Get masked Google Workspace OAuth client configuration.",
+    emptySchema,
+    async () => googleIntegrationImplementations.getOAuthConfig(),
+  ),
+  defineTool(
+    "metamcp_set_google_oauth_config",
+    "Configure Google Workspace OAuth client ID and client Secret (saved encrypted at rest).",
+    SetGoogleOAuthConfigRequestSchema,
+    async (_userId, input) =>
+      googleIntegrationImplementations.setOAuthConfig(
+        SetGoogleOAuthConfigRequestSchema.parse(input),
+      ),
   ),
   definePublicTool(
     "metamcp_get_auth_providers",

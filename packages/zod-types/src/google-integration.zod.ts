@@ -88,3 +88,20 @@ export const GoogleDisconnectResponseSchema = z.object({
 export type GoogleDisconnectResponse = z.infer<
   typeof GoogleDisconnectResponseSchema
 >;
+
+export const GoogleOAuthConfigSchema = z.object({
+  configured: z.boolean(),
+  clientId: z.string().nullable().optional(),
+  clientSecretMasked: z.string().nullable().optional(),
+});
+
+export type GoogleOAuthConfig = z.infer<typeof GoogleOAuthConfigSchema>;
+
+export const SetGoogleOAuthConfigRequestSchema = z.object({
+  clientId: z.string().min(1, "Client ID is required"),
+  clientSecret: z.string().min(1, "Client Secret is required"),
+});
+
+export type SetGoogleOAuthConfigRequest = z.infer<
+  typeof SetGoogleOAuthConfigRequestSchema
+>;

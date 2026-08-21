@@ -1,4 +1,5 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { googleOAuthAdminConfigService } from "../google-oauth-admin-config.service";
 
 export const GOOGLE_WORKSPACE_SERVER_NAME = "GoogleWorkspace";
 export const GOOGLE_WORKSPACE_SERVER_UUID =
@@ -858,8 +859,9 @@ export class GoogleWorkspaceClient {
     userId: string,
     connection: GoogleConnection,
   ): Promise<GoogleConnection> {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const credentials = await googleOAuthAdminConfigService.getCredentials();
+    const clientId = credentials.clientId;
+    const clientSecret = credentials.clientSecret;
     if (!clientId || !clientSecret) {
       throw new GoogleWorkspaceError(
         "CONFIGURATION",

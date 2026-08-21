@@ -9,6 +9,24 @@ vi.mock("@/db/repositories/mcp-request-audit-logs.repo", () => ({
   },
 }));
 
+vi.mock("@/db/repositories", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock("../../db/repositories/config.repo", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock("@/db/repositories/config.repo", () => ({
+  configRepo: {
+    getConfig: vi.fn(async () => undefined),
+  },
+}));
+
 import { createAuditCallToolMiddleware } from "./audit-requests.functional";
 import { MetaMCPHandlerContext } from "./functional-middleware";
 

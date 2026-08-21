@@ -10,10 +10,11 @@ import {
   KeyRound,
   Mail,
   RefreshCw,
+  Settings,
   Table,
   Unlink,
 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -47,6 +48,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTranslations } from "@/hooks/useTranslations";
 import { trpc } from "@/lib/trpc";
@@ -126,6 +128,36 @@ export function GoogleWorkspaceIntegrationCard() {
     "documents.readonly",
     "spreadsheets.readonly",
   ]);
+
+  // Admin Client Config state
+  const [clientIdInput, setClientIdInput] = useState("");
+  const [clientSecretInput, setClientSecretInput] = useState("");
+
+  const {
+    data: oauthConfig,
+    isLoading: oauthConfigLoading,
+    refetch: refetchOAuthConfig,
+  } = trpc.frontend.googleIntegration.getOAuthConfig.useQuery();
+
+  const setOAuthConfigMutation =
+    trpc.frontend.googleIntegration.setOAuthConfig.useMutation({
+      onSuccess: () => {
+        toast.success(t("settings:googleWorkspaceClientConfigSaved"));
+        refetchOAuthConfig();
+        setClientSecretInput("");
+      },
+      onError: (err) => {
+        toast.error(t("settings:googleWorkspaceClientConfigError"), {
+          description: err.message,
+        });
+      },
+    });
+
+  useEffect(() => {
+    if (oauthConfig?.clientId) {
+      setClientIdInput(oauthConfig.clientId);
+    }
+  }, [oauthConfig?.clientId]);
 
   const {
     data: status,
@@ -243,7 +275,98 @@ export function GoogleWorkspaceIntegrationCard() {
   }, [status?.scopes]);
 
   return (
-    <Card>
+    <div className="space-y-6">
+      {/* Admin OAuth Client Configuration Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xl">
+                  {t("settings:googleWorkspaceClientConfigTitle")}
+                </CardTitle>
+                {oauthConfig?.configured ? (
+                  <Badge variant="success">
+                    {t("settings:googleWorkspaceConfigured")}
+                  </Badge>
+                ) : (
+                  <Badge variant="neutral">
+                    {t("settings:googleWorkspaceNotConfigured")}
+                  </Badge>
+                )}
+              </div>
+              <CardDescription>
+                {t("settings:googleWorkspaceClientConfigDescription")}
+              </CardDescription>
+            </div>
+            <div>
+              <Settings className="w-5 h-5 text-muted-foreground" />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {oauthConfigLoading ? (
+            <div className="text-sm text-muted-foreground">
+              {t("settings:loading")}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="google-client-id">
+                  {t("settings:googleWorkspaceClientId")}
+                </Label>
+                <Input
+                  id="google-client-id"
+                  placeholder={t("settings:googleWorkspaceClientIdPlaceholder")}
+                  value={clientIdInput}
+                  onChange={(e) => setClientIdInput(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="google-client-secret">
+                  {t("settings:googleWorkspaceClientSecret")}
+                </Label>
+                <Input
+                  id="google-client-secret"
+                  type="password"
+                  placeholder={
+                    oauthConfig?.clientSecretMasked
+                      ? `${oauthConfig.clientSecretMasked} (Enter new value to update)`
+                      : t("settings:googleWorkspaceClientSecretPlaceholder")
+                  }
+                  value={clientSecretInput}
+                  onChange={(e) => setClientSecretInput(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </CardContent>
+        <CardFooter className="flex justify-end border-t pt-4">
+          <Button
+            size="sm"
+            disabled={
+              setOAuthConfigMutation.isPending ||
+              !clientIdInput.trim() ||
+              (!clientSecretInput.trim() && !oauthConfig?.configured)
+            }
+            onClick={() => {
+              if (clientIdInput.trim()) {
+                setOAuthConfigMutation.mutate({
+                  clientId: clientIdInput.trim(),
+                  clientSecret: clientSecretInput.trim(),
+                });
+              }
+            }}
+          >
+            {setOAuthConfigMutation.isPending
+              ? t("settings:googleWorkspaceSavingClientConfig")
+              : t("settings:googleWorkspaceSaveClientConfig")}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      {/* User Connection & Permissions Card */}
+      <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="space-y-1">
@@ -331,9 +454,15 @@ export function GoogleWorkspaceIntegrationCard() {
           </div>
         ) : (
           <div className="text-sm text-muted-foreground">
-            {connectionHealth.isRevoked
-              ? t("settings:googleWorkspaceRevoked")
-              : t("settings:googleWorkspaceDisconnected")}
+            {!oauthConfig?.configured ? (
+              <span className="text-amber-500 font-medium">
+                {t("settings:googleWorkspaceConfigRequiredWarning")}
+              </span>
+            ) : connectionHealth.isRevoked ? (
+              t("settings:googleWorkspaceRevoked")
+            ) : (
+              t("settings:googleWorkspaceDisconnected")
+            )}
           </div>
         )}
       </CardContent>
@@ -378,7 +507,7 @@ export function GoogleWorkspaceIntegrationCard() {
               variant="default"
               size="sm"
               onClick={handleConnect}
-              disabled={connectMutation.isPending}
+              disabled={connectMutation.isPending || !oauthConfig?.configured}
             >
               <KeyRound className="w-4 h-4 mr-2" />
               {connectMutation.isPending
@@ -469,5 +598,6 @@ export function GoogleWorkspaceIntegrationCard() {
         </div>
       </CardFooter>
     </Card>
+    </div>
   );
 }

@@ -135,3 +135,38 @@ export function decryptGoogleToken(
 
   return decrypted;
 }
+
+export function serializeEncryptedPayload(payload: EncryptedTokenPayload): string {
+  return JSON.stringify(payload);
+}
+
+export function deserializeEncryptedPayload(serialized: string): EncryptedTokenPayload {
+  const parsed = JSON.parse(serialized);
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof parsed.encryptedData !== "string" ||
+    typeof parsed.iv !== "string" ||
+    typeof parsed.authTag !== "string" ||
+    typeof parsed.keyVersion !== "number"
+  ) {
+    throw new Error("Invalid encrypted payload format");
+  }
+  return parsed as EncryptedTokenPayload;
+}
+
+export function encryptSecretString(
+  plaintext: string,
+  options?: { key?: string | Buffer; keyVersion?: number },
+): string {
+  const payload = encryptGoogleToken(plaintext, options);
+  return serializeEncryptedPayload(payload);
+}
+
+export function decryptSecretString(
+  serialized: string,
+  options?: { key?: string | Buffer },
+): string {
+  const payload = deserializeEncryptedPayload(serialized);
+  return decryptGoogleToken(payload, options);
+}

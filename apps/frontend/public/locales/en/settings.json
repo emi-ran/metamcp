@@ -86,5 +86,18 @@
   "googleWorkspaceScopeSheetsWrite": "Google Sheets (Create/Update)",
   "googleWorkspaceAuthError": "OAuth Error",
   "googleWorkspaceAuthErrorDescription": "An error occurred during Google Workspace authorization.",
+  "googleWorkspaceClientConfigTitle": "OAuth Client Configuration",
+  "googleWorkspaceClientConfigDescription": "Enter the Google Cloud OAuth 2.0 Web Client ID and Client Secret. Secrets are encrypted at rest with the master key.",
+  "googleWorkspaceClientId": "Google Client ID",
+  "googleWorkspaceClientIdPlaceholder": "xxxx.apps.googleusercontent.com",
+  "googleWorkspaceClientSecret": "Google Client Secret",
+  "googleWorkspaceClientSecretPlaceholder": "Enter Client Secret",
+  "googleWorkspaceConfigured": "Configured",
+  "googleWorkspaceNotConfigured": "Not Configured",
+  "googleWorkspaceSaveClientConfig": "Save OAuth Credentials",
+  "googleWorkspaceSavingClientConfig": "Saving...",
+  "googleWorkspaceClientConfigSaved": "OAuth client configuration saved",
+  "googleWorkspaceClientConfigError": "Failed to save OAuth client configuration",
+  "googleWorkspaceConfigRequiredWarning": "Google OAuth client credentials must be configured before connecting accounts.",
   "reset": "Reset"
 }
