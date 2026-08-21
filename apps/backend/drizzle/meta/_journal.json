@@ -176,6 +176,13 @@
       "when": 1787296690000,
       "tag": "0024_google_oauth_client_config",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787311500000,
+      "tag": "0025_relax_mcp_server_url_constraint",
+      "breakpoints": true
     }
   ]
 }

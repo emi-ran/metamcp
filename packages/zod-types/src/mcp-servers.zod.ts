@@ -163,6 +163,16 @@ const isValidOptionalUrl = (value: string | undefined) => {
   }
 };
 
+const isValidHttpUrl = (value: string | undefined) => {
+  if (isEmptyString(value)) return false;
+  try {
+    const url = new URL(value as string);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 // Validation rules applied to the request schemas: if ANY field in the
 // section is populated, client_id becomes required; URL fields must parse.
 export const OAuthClientInfoRequestSchema = oauthClientInfoBaseSchema
@@ -263,13 +273,7 @@ export const createServerFormSchema = z
         if (!data.url || data.url.trim() === "") {
           return false;
         }
-        // Validate URL format
-        try {
-          new URL(data.url);
-          return true;
-        } catch {
-          return false;
-        }
+        return isValidHttpUrl(data.url);
       }
       return true;
     },
@@ -342,13 +346,7 @@ export const EditServerFormSchema = z
         if (!data.url || data.url.trim() === "") {
           return false;
         }
-        // Validate URL format
-        try {
-          new URL(data.url);
-          return true;
-        } catch {
-          return false;
-        }
+        return isValidHttpUrl(data.url);
       }
       return true;
     },
@@ -412,12 +410,7 @@ export const CreateMcpServerRequestSchema = z
         return false;
       }
 
-      try {
-        new URL(data.url);
-        return true;
-      } catch {
-        return false;
-      }
+      return isValidHttpUrl(data.url);
     },
     {
       message:
@@ -504,12 +497,7 @@ export const BulkImportMcpServerSchema = z
         return false;
       }
 
-      try {
-        new URL(data.url);
-        return true;
-      } catch {
-        return false;
-      }
+      return isValidHttpUrl(data.url);
     },
     {
       message:
