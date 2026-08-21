@@ -118,6 +118,7 @@ const SCOPE_OPTIONS: ScopeOption[] = [
 export function GoogleWorkspaceIntegrationCard() {
   const { t } = useTranslations();
   const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>();
   const [selectedScopes, setSelectedScopes] = useState<GoogleWorkspaceScopeType[]>([
     "gmail.readonly",
     "calendar.readonly",
@@ -158,6 +159,11 @@ export function GoogleWorkspaceIntegrationCard() {
     },
   });
 
+  const setDefaultMutation = trpc.frontend.googleIntegration.setDefault.useMutation({
+    onSuccess: () => refetchStatus(),
+    onError: (err) => toast.error(err.message),
+  });
+
   const disconnectMutation = trpc.frontend.googleIntegration.disconnect.useMutation({
     onSuccess: () => {
       toast.success(t("settings:googleWorkspaceDisconnectSuccess"));
@@ -175,7 +181,10 @@ export function GoogleWorkspaceIntegrationCard() {
   };
 
   const handleReconnect = () => {
-    reconnectMutation.mutate({ workspaceScopes: selectedScopes });
+    reconnectMutation.mutate({
+      connectionId: selectedConnectionId,
+      workspaceScopes: selectedScopes,
+    });
   };
 
   const handleScopeToggle = (scopeId: GoogleWorkspaceScopeType, checked: boolean) => {
@@ -254,6 +263,32 @@ export function GoogleWorkspaceIntegrationCard() {
           <div className="text-sm text-muted-foreground">{t("settings:loading")}</div>
         ) : status?.connected ? (
           <div className="space-y-4">
+            <div className="space-y-2">
+              {status.connections.map((connection) => (
+                <div key={connection.id} className="flex items-center justify-between rounded border p-3 text-sm">
+                  <span>{connection.maskedEmail || "Connected account"}</span>
+                  <div className="flex items-center gap-2">
+                    {connection.isDefault ? <Badge variant="secondary">Default</Badge> : (
+                      <Button size="sm" variant="ghost" onClick={() => setDefaultMutation.mutate({ connectionId: connection.id })}>
+                        Set default
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => { setSelectedConnectionId(connection.id); setReconnectDialogOpen(true); }}>
+                      Reconnect
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive"
+                      disabled={disconnectMutation.isPending}
+                      onClick={() => disconnectMutation.mutate({ connectionId: connection.id })}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm bg-muted/40 p-4 rounded-lg">
               <div>
                 <span className="text-muted-foreground block">
@@ -360,6 +395,7 @@ export function GoogleWorkspaceIntegrationCard() {
                 variant="outline"
                 size="sm"
                 disabled={reconnectMutation.isPending}
+                onClick={() => setSelectedConnectionId(status?.defaultConnectionId ?? undefined)}
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 {t("settings:googleWorkspaceReconnect")}

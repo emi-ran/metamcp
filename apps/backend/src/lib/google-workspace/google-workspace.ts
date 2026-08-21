@@ -61,7 +61,13 @@ function tool(
   return {
     name,
     description,
-    inputSchema: object(properties, required),
+    inputSchema: object({
+      connectionId: {
+        type: "string",
+        description: "Optional Google connection ID. Defaults to user's default account.",
+      },
+      ...properties,
+    }, required),
     annotations: {
       readOnlyHint: !write,
       destructiveHint: options.destructive === true,
@@ -361,7 +367,7 @@ export type GoogleConnection = {
   email?: string | null;
 };
 export type GoogleConnectionStore = {
-  getDecryptedTokens(userId: string): Promise<GoogleConnection | null>;
+  getDecryptedTokens(userId: string, connectionId?: string): Promise<GoogleConnection | null>;
   upsertConnection(input: {
     userId: string;
     scopes: string[];
@@ -376,6 +382,7 @@ export type GoogleWorkspaceExecution = {
   toolName: string;
   arguments: Record<string, unknown>;
   allowWrites?: boolean;
+  connectionId?: string;
 };
 
 export class GoogleWorkspaceError extends Error {
@@ -794,7 +801,7 @@ export class GoogleWorkspaceClient {
         "Google Workspace write requires an active namespace tool mapping",
       );
     }
-    const connection = await this.getConnection(input.userId);
+    const connection = await this.getConnection(input.userId, input.connectionId);
     const requirement = requiredScope(input.toolName);
     if (
       !requirement.anyOf.some((required) =>
@@ -813,9 +820,9 @@ export class GoogleWorkspaceClient {
     );
   }
 
-  private async getConnection(userId: string): Promise<GoogleConnection> {
+  private async getConnection(userId: string, connectionId?: string): Promise<GoogleConnection> {
     const connection =
-      await this.dependencies.connections.getDecryptedTokens(userId);
+      await this.dependencies.connections.getDecryptedTokens(userId, connectionId);
     if (!connection) {
       throw new GoogleWorkspaceError(
         "NOT_CONNECTED",
@@ -834,12 +841,13 @@ export class GoogleWorkspaceClient {
         "Google connection expired. Reconnect and re-consent to the required scopes.",
       );
     }
-    let flight = this.refreshFlights.get(userId);
+    const flightKey = `${userId}:${connectionId ?? "default"}`;
+    let flight = this.refreshFlights.get(flightKey);
     if (!flight) {
       flight = this.refresh(userId, connection).finally(() =>
-        this.refreshFlights.delete(userId),
+        this.refreshFlights.delete(flightKey),
       );
-      this.refreshFlights.set(userId, flight);
+      this.refreshFlights.set(flightKey, flight);
     }
     return flight;
   }

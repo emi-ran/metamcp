@@ -6,6 +6,8 @@ import { googleOAuthStateTable } from "../schema";
 export interface GoogleOAuthStateCreateInput {
   state: string;
   user_id: string;
+  intent?: "connect" | "reconnect";
+  target_connection_id?: string | null;
   code_verifier: string;
   redirect_uri: string;
   expires_at: Date;
@@ -16,6 +18,8 @@ export class GoogleOAuthStateRepository {
     await db.insert(googleOAuthStateTable).values({
       state: data.state,
       user_id: data.user_id,
+      intent: data.intent ?? "connect",
+      target_connection_id: data.target_connection_id ?? null,
       code_verifier: data.code_verifier,
       redirect_uri: data.redirect_uri,
       expires_at: data.expires_at,

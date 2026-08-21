@@ -13,6 +13,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  uniqueIndex,
   text,
   timestamp,
   unique,
@@ -608,6 +609,7 @@ export const googleConnectionsTable = pgTable(
       .references(() => usersTable.id, { onDelete: "cascade" }),
     google_user_id: text("google_user_id"),
     email: text("email"),
+    is_default: boolean("is_default").notNull().default(false),
     scopes: text("scopes")
       .array()
       .notNull()
@@ -632,7 +634,13 @@ export const googleConnectionsTable = pgTable(
   },
   (table) => [
     index("google_connections_user_id_idx").on(table.user_id),
-    unique("google_connections_user_id_unique").on(table.user_id),
+    unique("google_connections_user_id_email_unique").on(
+      table.user_id,
+      table.email,
+    ),
+    uniqueIndex("google_connections_one_default_per_user_idx")
+      .on(table.user_id)
+      .where(sql`is_default = true`),
   ],
 );
 
@@ -644,6 +652,8 @@ export const googleOAuthStateTable = pgTable(
     user_id: text("user_id")
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),
+    intent: text("intent").notNull().default("connect"), // "connect" | "reconnect"
+    target_connection_id: uuid("target_connection_id"),
     code_verifier: text("code_verifier").notNull(),
     redirect_uri: text("redirect_uri").notNull(),
     expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),

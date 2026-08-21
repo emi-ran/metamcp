@@ -63,7 +63,11 @@ function parseWorkspaceScopes(value: unknown): GoogleWorkspaceScope[] {
 async function startGoogleConnect(
   req: express.Request,
   res: express.Response,
-  options: { forcePrompt: boolean; workspaceScopes: GoogleWorkspaceScope[] },
+  options: {
+    forcePrompt: boolean;
+    workspaceScopes: GoogleWorkspaceScope[];
+    targetConnectionId?: string;
+  },
 ) {
   try {
     const user = await getAuthenticatedUser(req);
@@ -78,6 +82,14 @@ async function startGoogleConnect(
         .json({ error: "Google OAuth client ID not configured" });
     }
 
+    if (options.targetConnectionId) {
+      const target = await googleConnectionsRepository.getByIdForUser(
+        user.id,
+        options.targetConnectionId,
+      );
+      if (!target) return res.status(404).json({ error: "Google connection not found" });
+    }
+
     const redirectUri = getPublicCallbackUrl();
     const { codeVerifier, codeChallenge } = generatePkcePair();
     const state = generateOAuthState();
@@ -89,6 +101,8 @@ async function startGoogleConnect(
     await googleOAuthStateRepository.createState({
       state,
       user_id: user.id,
+      intent: options.forcePrompt ? "reconnect" : "connect",
+      target_connection_id: options.targetConnectionId ?? null,
       code_verifier: codeVerifier,
       redirect_uri: redirectUri,
       expires_at: expiresAt,
@@ -161,7 +175,15 @@ googleOAuthRouter.post("/integrations/google/reconnect", async (req, res) => {
       .status(400)
       .json({ error: "Invalid requested Google workspace scopes" });
   }
-  return startGoogleConnect(req, res, { forcePrompt: true, workspaceScopes });
+  const connectionId =
+    typeof req.body?.connectionId === "string"
+      ? req.body.connectionId
+      : undefined;
+  return startGoogleConnect(req, res, {
+    forcePrompt: true,
+    workspaceScopes,
+    targetConnectionId: connectionId,
+  });
 });
 
 // GET /integrations/google/callback - handle Google redirect.
@@ -220,6 +242,7 @@ googleOAuthRouter.get("/integrations/google/callback", async (req, res) => {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
       expiresInSeconds: tokenResponse.expires_in,
+      connectionId: stateRecord.target_connection_id,
     });
 
     const appUrl = process.env.APP_URL || "/";

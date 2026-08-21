@@ -24,10 +24,30 @@ vi.mock("../db/repositories", () => {
           revokedAt: item.revokedAt,
         };
       }),
+      getStatuses: vi.fn(async (userId: string) => {
+        const item = store.get(userId);
+        return item
+          ? [{
+              connected: true,
+              id: "00000000-0000-4000-8000-000000000001",
+              isDefault: true,
+              email: item.email,
+              scopes: item.scopes,
+              expiresAt: item.expiresAt,
+              updatedAt: item.updatedAt,
+              revokedAt: item.revokedAt,
+            }]
+          : [];
+      }),
+      getByIdForUser: vi.fn(async () => ({ uuid: "connection-1" })),
+      setDefaultForUser: vi.fn(async () => undefined),
       upsertConnection: vi.fn(async (input: any) => {
         store.set(input.userId, input);
       }),
       deleteByUserId: vi.fn(async (userId: string) => {
+        store.delete(userId);
+      }),
+      deleteByIdForUser: vi.fn(async (userId: string) => {
         store.delete(userId);
       }),
       getDecryptedTokens: vi.fn(async (userId: string) => {
@@ -125,6 +145,30 @@ describe("googleIntegrationImplementations", () => {
     });
   });
 
+  it("lists account-specific status without exposing raw identity", async () => {
+    const { googleConnectionsRepository } = await import("../db/repositories");
+    (googleConnectionsRepository.getStatuses as any).mockResolvedValueOnce([
+      {
+        connected: true,
+        id: "00000000-0000-4000-8000-000000000001",
+        isDefault: true,
+        email: "alice@company.com",
+        scopes: ["gmail.readonly"],
+      },
+    ]);
+
+    const status = await googleIntegrationImplementations.getStatus("user-1");
+    expect(status.defaultConnectionId).toBe(
+      "00000000-0000-4000-8000-000000000001",
+    );
+    expect(status.connections[0]).toMatchObject({
+      id: "00000000-0000-4000-8000-000000000001",
+      maskedEmail: "al***@company.com",
+      isDefault: true,
+    });
+    expect(status.connections[0]).not.toHaveProperty("email");
+  });
+
   describe("reconnect", () => {
     it("generates url requesting explicit least-privilege scopes with forced consent", async () => {
       const res = await googleIntegrationImplementations.reconnect(
@@ -137,6 +181,23 @@ describe("googleIntegrationImplementations", () => {
       expect(res.url).toContain("prompt=consent+select_account");
       expect(res.url).toContain("calendar.readonly");
       expect(res.url).toContain("drive.file");
+    });
+
+    it("binds reconnect state to requested connection", async () => {
+      const { googleOAuthStateRepository } = await import("../db/repositories");
+      await googleIntegrationImplementations.reconnect(
+        {
+          connectionId: "00000000-0000-4000-8000-000000000001",
+          workspaceScopes: [],
+        },
+        "user-1",
+      );
+      expect(googleOAuthStateRepository.createState).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          intent: "reconnect",
+          target_connection_id: "00000000-0000-4000-8000-000000000001",
+        }),
+      );
     });
   });
 

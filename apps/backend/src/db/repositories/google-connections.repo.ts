@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import {
   decryptGoogleToken,
@@ -11,6 +11,7 @@ import { googleConnectionsTable } from "../schema";
 
 export interface SaveGoogleTokensInput {
   userId: string;
+  connectionId?: string | null;
   googleUserId?: string | null;
   email?: string | null;
   scopes: string[];
@@ -22,6 +23,8 @@ export interface SaveGoogleTokensInput {
 
 export interface GoogleConnectionStatus {
   connected: boolean;
+  id?: string;
+  isDefault?: boolean;
   email?: string | null;
   googleUserId?: string | null;
   scopes?: string[];
@@ -31,26 +34,65 @@ export interface GoogleConnectionStatus {
 }
 
 export class GoogleConnectionsRepository {
+  async listByUserId(
+    userId: string,
+  ): Promise<(typeof googleConnectionsTable.$inferSelect)[]> {
+    return db
+      .select()
+      .from(googleConnectionsTable)
+      .where(eq(googleConnectionsTable.user_id, userId));
+  }
+
+  async getByIdForUser(
+    userId: string,
+    connectionId: string,
+  ): Promise<typeof googleConnectionsTable.$inferSelect | null> {
+    const result = await db
+      .select()
+      .from(googleConnectionsTable)
+      .where(
+        and(
+          eq(googleConnectionsTable.user_id, userId),
+          eq(googleConnectionsTable.uuid, connectionId),
+        ),
+      )
+      .limit(1);
+    return result[0] ?? null;
+  }
+
   async getByUserId(
     userId: string,
   ): Promise<typeof googleConnectionsTable.$inferSelect | null> {
+    const defaultResult = await db
+      .select()
+      .from(googleConnectionsTable)
+      .where(
+        and(
+          eq(googleConnectionsTable.user_id, userId),
+          eq(googleConnectionsTable.is_default, true),
+        ),
+      )
+      .limit(1);
+    if (defaultResult[0]) return defaultResult[0];
     const result = await db
       .select()
       .from(googleConnectionsTable)
       .where(eq(googleConnectionsTable.user_id, userId))
       .limit(1);
-
-    return result[0] || null;
+    return result[0] ?? null;
   }
 
-  async getDecryptedTokens(userId: string): Promise<{
+  async getDecryptedTokens(userId: string, connectionId?: string): Promise<{
+    connectionId: string;
     accessToken: string;
     refreshToken: string | null;
     expiresAt: Date | null;
     scopes: string[];
     email: string | null;
   } | null> {
-    const conn = await this.getByUserId(userId);
+    const conn = connectionId
+      ? await this.getByIdForUser(userId, connectionId)
+      : await this.getByUserId(userId);
     if (!conn || conn.revoked_at) return null;
 
     const accessToken = decryptGoogleToken({
@@ -75,6 +117,7 @@ export class GoogleConnectionsRepository {
     }
 
     return {
+      connectionId: conn.uuid,
       accessToken,
       refreshToken,
       expiresAt: conn.access_token_expires_at,
@@ -85,23 +128,34 @@ export class GoogleConnectionsRepository {
 
   async getStatus(userId: string): Promise<GoogleConnectionStatus> {
     const conn = await this.getByUserId(userId);
-    if (!conn) {
-      return { connected: false };
-    }
+    return conn
+      ? {
+          connected: !conn.revoked_at,
+          id: conn.uuid,
+          isDefault: conn.is_default,
+          email: conn.email,
+          googleUserId: conn.google_user_id,
+          scopes: conn.scopes,
+          expiresAt: conn.access_token_expires_at,
+          updatedAt: conn.updated_at,
+          revokedAt: conn.revoked_at,
+        }
+      : { connected: false };
+  }
 
-    if (conn.revoked_at) {
-      return { connected: false, revokedAt: conn.revoked_at };
-    }
-
-    return {
-      connected: true,
+  async getStatuses(userId: string): Promise<GoogleConnectionStatus[]> {
+    const connections = await this.listByUserId(userId);
+    return connections.map((conn) => ({
+      connected: !conn.revoked_at,
+      id: conn.uuid,
+      isDefault: conn.is_default,
       email: conn.email,
       googleUserId: conn.google_user_id,
       scopes: conn.scopes,
       expiresAt: conn.access_token_expires_at,
       updatedAt: conn.updated_at,
       revokedAt: conn.revoked_at,
-    };
+    }));
   }
 
   async upsertConnection(input: SaveGoogleTokensInput): Promise<void> {
@@ -118,7 +172,37 @@ export class GoogleConnectionsRepository {
       : null;
 
     // Check existing to retain old refresh token if not returned on re-auth
-    const existing = await this.getByUserId(input.userId);
+    const existing = input.connectionId
+      ? await this.getByIdForUser(input.userId, input.connectionId)
+      : input.email
+        ? (
+            await db
+              .select()
+              .from(googleConnectionsTable)
+              .where(
+                and(
+                  eq(googleConnectionsTable.user_id, input.userId),
+                  eq(googleConnectionsTable.email, input.email),
+                ),
+              )
+              .limit(1)
+          )[0] ?? null
+        : null;
+    if (input.connectionId && !existing) {
+      throw new Error("Google connection does not belong to user");
+    }
+    const hasDefault =
+      existing?.is_default ||
+      (await db
+        .select({ uuid: googleConnectionsTable.uuid })
+        .from(googleConnectionsTable)
+        .where(
+          and(
+            eq(googleConnectionsTable.user_id, input.userId),
+            eq(googleConnectionsTable.is_default, true),
+          ),
+        )
+        .limit(1)).length > 0;
 
     const valuesToInsert = {
       user_id: input.userId,
@@ -136,22 +220,64 @@ export class GoogleConnectionsRepository {
       key_version: encAccess.keyVersion,
       access_token_expires_at: expiresAt,
       revoked_at: null,
+      is_default: existing?.is_default ?? !hasDefault,
       updated_at: new Date(),
     };
 
-    await db
-      .insert(googleConnectionsTable)
-      .values(valuesToInsert)
-      .onConflictDoUpdate({
-        target: googleConnectionsTable.user_id,
-        set: valuesToInsert,
-      });
+    if (existing) {
+      await db
+        .update(googleConnectionsTable)
+        .set(valuesToInsert)
+        .where(eq(googleConnectionsTable.uuid, existing.uuid));
+    } else {
+      await db
+        .insert(googleConnectionsTable)
+        .values(valuesToInsert)
+        .onConflictDoUpdate({
+          target: googleConnectionsTable.uuid,
+          set: valuesToInsert,
+        });
+    }
   }
 
   async deleteByUserId(userId: string): Promise<void> {
     await db
       .delete(googleConnectionsTable)
       .where(eq(googleConnectionsTable.user_id, userId));
+  }
+
+  async deleteByIdForUser(userId: string, connectionId?: string): Promise<void> {
+    await db
+      .delete(googleConnectionsTable)
+      .where(
+        connectionId
+          ? and(
+              eq(googleConnectionsTable.user_id, userId),
+              eq(googleConnectionsTable.uuid, connectionId),
+            )
+          : eq(googleConnectionsTable.user_id, userId),
+      );
+    if (connectionId) {
+      const remaining = await this.listByUserId(userId);
+      if (remaining.length > 0 && !remaining.some((connection) => connection.is_default)) {
+        await this.setDefaultForUser(userId, remaining[0].uuid);
+      }
+    }
+  }
+
+  async setDefaultForUser(userId: string, connectionId: string): Promise<void> {
+    const connection = await this.getByIdForUser(userId, connectionId);
+    if (!connection) throw new Error("Google connection does not belong to user");
+    await db.transaction(async (tx) => {
+      await tx
+        .update(googleConnectionsTable)
+        .set({ is_default: false })
+        .where(eq(googleConnectionsTable.user_id, userId));
+      await tx
+        .update(googleConnectionsTable)
+        .set({ is_default: true, updated_at: new Date() })
+        .where(eq(googleConnectionsTable.uuid, connectionId));
+    });
   }
 }
 

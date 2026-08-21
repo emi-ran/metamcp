@@ -486,6 +486,10 @@ export const createServer = async (
         userId,
         toolName: originalToolName,
         arguments: (args ?? {}) as Record<string, unknown>,
+        connectionId:
+          typeof (args as Record<string, unknown> | undefined)?.connectionId === "string"
+            ? (args as Record<string, unknown>).connectionId as string
+            : undefined,
         // Filter middleware runs before this handler and enforces active map.
         allowWrites: true,
       });
