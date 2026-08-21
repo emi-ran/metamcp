@@ -77,6 +77,29 @@ MetaMCP 严格遵循最小权限原则：
 | **Gmail** | `gmail_get_thread` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
 | **Gmail** | `gmail_list_labels` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
 | **Gmail** | `gmail_download_attachment` | 读 | `https://www.googleapis.com/auth/gmail.readonly` | 否（已包含在默认初始连接） |
+| **Gmail** | `gmail_mark_read` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_mark_unread` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_star` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_unstar` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_archive` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_unarchive` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_move_to_inbox` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_trash` | 写 / 破坏性 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_untrash` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_report_spam` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_remove_spam` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_add_labels` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_remove_labels` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_trash_thread` | 写 / 破坏性 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_untrash_thread` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_create_label` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_update_label` | 写 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_delete_label` | 写 / 破坏性 | `https://www.googleapis.com/auth/gmail.modify` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_list_drafts` | 读 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_get_draft` | 读 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_create_draft` | 写 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_update_draft` | 写 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
+| **Gmail** | `gmail_delete_draft` | 写 / 破坏性 | `https://www.googleapis.com/auth/gmail.compose` | 是（需通过“重新连接”强制重新同意） |
 | **Calendar** | `calendar_list_calendars` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
 | **Calendar** | `calendar_list_events` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |
 | **Calendar** | `calendar_get_event` | 读 | `https://www.googleapis.com/auth/calendar.readonly` | 是（需通过“重新连接”显式选择） |

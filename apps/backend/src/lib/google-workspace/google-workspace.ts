@@ -16,6 +16,7 @@ const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
 const scopes = {
   gmailRead: "https://www.googleapis.com/auth/gmail.readonly",
   gmailModify: "https://www.googleapis.com/auth/gmail.modify",
+  gmailCompose: "https://www.googleapis.com/auth/gmail.compose",
   calendarRead: "https://www.googleapis.com/auth/calendar.readonly",
   calendarWrite: "https://www.googleapis.com/auth/calendar.events",
   driveRead: "https://www.googleapis.com/auth/drive.readonly",
@@ -235,6 +236,115 @@ export const GOOGLE_WORKSPACE_TOOLS: Tool[] = [
     { threadId: { type: "string" } },
     ["threadId"],
     { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_create_label",
+    "Create a new user label in Gmail. Active policy mapping and gmail.modify re-consent required.",
+    {
+      name: { type: "string", description: "The display name of the label." },
+      labelListVisibility: {
+        type: "string",
+        enum: ["labelShow", "labelShowIfUnread", "labelHide"],
+        description: "The visibility of the label in the label list.",
+      },
+      messageListVisibility: {
+        type: "string",
+        enum: ["show", "hide"],
+        description: "The visibility of the label in the message list.",
+      },
+      color: object({
+        textColor: { type: "string" },
+        backgroundColor: { type: "string" },
+      }),
+    },
+    ["name"],
+    { write: true },
+  ),
+  tool(
+    "gmail_update_label",
+    "Update an existing user label in Gmail. Active policy mapping and gmail.modify re-consent required.",
+    {
+      labelId: { type: "string", description: "The ID of the user label to update." },
+      name: { type: "string", description: "The new display name of the label." },
+      labelListVisibility: {
+        type: "string",
+        enum: ["labelShow", "labelShowIfUnread", "labelHide"],
+        description: "The visibility of the label in the label list.",
+      },
+      messageListVisibility: {
+        type: "string",
+        enum: ["show", "hide"],
+        description: "The visibility of the label in the message list.",
+      },
+      color: object({
+        textColor: { type: "string" },
+        backgroundColor: { type: "string" },
+      }),
+    },
+    ["labelId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_delete_label",
+    "Permanently delete a user label in Gmail. Destructive operation. Active policy mapping and gmail.modify re-consent required.",
+    {
+      labelId: { type: "string", description: "The ID of the user label to delete." },
+    },
+    ["labelId"],
+    { write: true, destructive: true },
+  ),
+  tool(
+    "gmail_list_drafts",
+    "List Gmail drafts with pagination and search query. Active policy mapping and gmail.compose re-consent required.",
+    {
+      query: { type: "string", description: "Optional query filter for drafts (same syntax as Gmail search)." },
+      maxResults: { type: "integer", minimum: 1, maximum: 100 },
+      pageToken: { type: "string" },
+    },
+  ),
+  tool(
+    "gmail_get_draft",
+    "Get one Gmail draft by draft ID with parsed message MIME. Active policy mapping and gmail.compose re-consent required.",
+    { draftId: { type: "string" } },
+    ["draftId"],
+  ),
+  tool(
+    "gmail_create_draft",
+    "Create a new Gmail draft using structured fields. Active policy mapping and gmail.compose re-consent required.",
+    {
+      to: stringArray(100),
+      cc: stringArray(100),
+      bcc: stringArray(100),
+      subject: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+      threadId: { type: "string" },
+    },
+    [],
+    { write: true },
+  ),
+  tool(
+    "gmail_update_draft",
+    "Replace/update an existing Gmail draft by draft ID using structured fields. Active policy mapping and gmail.compose re-consent required.",
+    {
+      draftId: { type: "string" },
+      to: stringArray(100),
+      cc: stringArray(100),
+      bcc: stringArray(100),
+      subject: { type: "string" },
+      bodyText: { type: "string" },
+      bodyHtml: { type: "string" },
+      threadId: { type: "string" },
+    },
+    ["draftId"],
+    { write: true, idempotent: true },
+  ),
+  tool(
+    "gmail_delete_draft",
+    "Permanently delete a Gmail draft by draft ID. Destructive operation. Active policy mapping and gmail.compose re-consent required.",
+    { draftId: { type: "string" } },
+    ["draftId"],
+    { write: true, destructive: true },
   ),
   tool("calendar_list_calendars", "List Google calendars."),
   tool(
@@ -691,6 +801,153 @@ const GMAIL_MESSAGE_MODIFY_ACTIONS: Record<
   gmail_remove_spam: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
 };
 
+function validateUserLabelId(labelId: string): string {
+  if (!labelId || typeof labelId !== "string") {
+    throw new GoogleWorkspaceError("INVALID_ARGUMENT", "labelId is required");
+  }
+  if (GMAIL_SYSTEM_LABELS.has(labelId)) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      "labelId must not be a Gmail system label",
+    );
+  }
+  return labelId;
+}
+
+function validateHeaderField(value: string, fieldName: string): string {
+  if (/[\r\n]/.test(value)) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      `${fieldName} must not contain CR or LF characters`,
+    );
+  }
+  return value;
+}
+
+function validateEmailList(values: string[], fieldName: string): string[] {
+  for (const email of values) {
+    if (typeof email !== "string" || email.length === 0) {
+      throw new GoogleWorkspaceError(
+        "INVALID_ARGUMENT",
+        `${fieldName} must contain non-empty email strings`,
+      );
+    }
+    validateHeaderField(email, fieldName);
+  }
+  return values;
+}
+
+const VALID_LABEL_LIST_VISIBILITY = new Set([
+  "labelShow",
+  "labelShowIfUnread",
+  "labelHide",
+]);
+const VALID_MESSAGE_LIST_VISIBILITY = new Set(["show", "hide"]);
+
+function validateLabelVisibility(
+  value: unknown,
+  fieldName: "labelListVisibility" | "messageListVisibility",
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new GoogleWorkspaceError("INVALID_ARGUMENT", `${fieldName} must be a string`);
+  }
+  const validSet =
+    fieldName === "labelListVisibility"
+      ? VALID_LABEL_LIST_VISIBILITY
+      : VALID_MESSAGE_LIST_VISIBILITY;
+  if (!validSet.has(value)) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      `Invalid ${fieldName} value. Allowed values: ${Array.from(validSet).join(", ")}`,
+    );
+  }
+  return value;
+}
+
+function validateLabelColor(value: unknown): { textColor?: string; backgroundColor?: string } | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new GoogleWorkspaceError("INVALID_ARGUMENT", "color must be an object");
+  }
+  const obj = value as Record<string, unknown>;
+  const textColor = obj.textColor !== undefined ? requiredString(obj, "textColor") : undefined;
+  const backgroundColor = obj.backgroundColor !== undefined ? requiredString(obj, "backgroundColor") : undefined;
+  return { textColor, backgroundColor };
+}
+
+function buildRfc2822Draft(args: Record<string, unknown>): string {
+  const to = args.to !== undefined ? requiredStringArray(args, "to", 100) : [];
+  const cc = args.cc !== undefined ? requiredStringArray(args, "cc", 100) : undefined;
+  const bcc = args.bcc !== undefined ? requiredStringArray(args, "bcc", 100) : undefined;
+  const subject = args.subject !== undefined ? requiredStringAllowEmpty(args, "subject") : "";
+  const bodyText = typeof args.bodyText === "string" ? args.bodyText : undefined;
+  const bodyHtml = typeof args.bodyHtml === "string" ? args.bodyHtml : undefined;
+
+  if (!bodyText && !bodyHtml) {
+    throw new GoogleWorkspaceError(
+      "INVALID_ARGUMENT",
+      "At least one of bodyText or bodyHtml is required",
+    );
+  }
+
+  if (to.length > 0) validateEmailList(to, "to");
+  if (cc && cc.length > 0) validateEmailList(cc, "cc");
+  if (bcc && bcc.length > 0) validateEmailList(bcc, "bcc");
+  validateHeaderField(subject, "subject");
+
+  const headers: string[] = [];
+  if (to.length > 0) headers.push(`To: ${to.join(", ")}`);
+  if (cc && cc.length > 0) headers.push(`Cc: ${cc.join(", ")}`);
+  if (bcc && bcc.length > 0) headers.push(`Bcc: ${bcc.join(", ")}`);
+  if (subject) headers.push(`Subject: ${subject}`);
+  headers.push("MIME-Version: 1.0");
+
+  let mimeContent = "";
+  if (bodyText !== undefined && bodyHtml !== undefined) {
+    const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    mimeContent = [
+      headers.join("\r\n"),
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      bodyText,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      bodyHtml,
+      "",
+      `--${boundary}--`,
+    ].join("\r\n");
+  } else if (bodyHtml !== undefined) {
+    headers.push("Content-Type: text/html; charset=UTF-8");
+    headers.push("Content-Transfer-Encoding: 7bit");
+    mimeContent = [headers.join("\r\n"), "", bodyHtml].join("\r\n");
+  } else {
+    headers.push("Content-Type: text/plain; charset=UTF-8");
+    headers.push("Content-Transfer-Encoding: 7bit");
+    mimeContent = [headers.join("\r\n"), "", bodyText || ""].join("\r\n");
+  }
+
+  return Buffer.from(mimeContent, "utf8").toString("base64url");
+}
+
+function parseGmailDraft(draft: Record<string, unknown>) {
+  const message =
+    draft.message && typeof draft.message === "object"
+      ? parseMimeMessage(draft.message as Record<string, unknown>)
+      : undefined;
+  return {
+    id: typeof draft.id === "string" ? draft.id : undefined,
+    ...(message ? { message } : {}),
+  };
+}
+
 function decodeBase64(value: string, key: string): Buffer {
   if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(value) || value.length % 4 === 1) {
     throw new GoogleWorkspaceError(
@@ -715,6 +972,15 @@ type ScopeRequirement = { anyOf: string[]; guidance: string };
 
 function requiredScope(toolName: string): ScopeRequirement {
   if (toolName.startsWith("gmail_")) {
+    if (
+      toolName === "gmail_list_drafts" ||
+      toolName === "gmail_get_draft" ||
+      toolName === "gmail_create_draft" ||
+      toolName === "gmail_update_draft" ||
+      toolName === "gmail_delete_draft"
+    ) {
+      return { anyOf: [scopes.gmailCompose], guidance: '"gmail.compose"' };
+    }
     return isGoogleWorkspaceWriteTool(toolName)
       ? { anyOf: [scopes.gmailModify], guidance: '"gmail.modify"' }
       : { anyOf: [scopes.gmailRead], guidance: '"gmail.readonly"' };
@@ -1381,6 +1647,162 @@ export class GoogleWorkspaceClient {
       return json(
         `/gmail/v1/users/me/threads/${encodePath(requiredString(args, "threadId"))}/${toolName === "gmail_trash_thread" ? "trash" : "untrash"}`,
         "POST",
+        undefined,
+        false,
+      );
+    }
+    if (toolName === "gmail_create_label") {
+      const name = requiredString(args, "name");
+      const labelListVisibility = validateLabelVisibility(
+        args.labelListVisibility,
+        "labelListVisibility",
+      );
+      const messageListVisibility = validateLabelVisibility(
+        args.messageListVisibility,
+        "messageListVisibility",
+      );
+      const color = validateLabelColor(args.color);
+      return json(
+        "/gmail/v1/users/me/labels",
+        "POST",
+        {
+          name,
+          ...(labelListVisibility ? { labelListVisibility } : {}),
+          ...(messageListVisibility ? { messageListVisibility } : {}),
+          ...(color ? { color } : {}),
+        },
+        false,
+      );
+    }
+    if (toolName === "gmail_update_label") {
+      const labelId = validateUserLabelId(requiredString(args, "labelId"));
+      const patchBody: Record<string, unknown> = {};
+      if (args.name !== undefined) {
+        patchBody.name = requiredString(args, "name");
+      }
+      if (args.labelListVisibility !== undefined) {
+        patchBody.labelListVisibility = validateLabelVisibility(
+          args.labelListVisibility,
+          "labelListVisibility",
+        );
+      }
+      if (args.messageListVisibility !== undefined) {
+        patchBody.messageListVisibility = validateLabelVisibility(
+          args.messageListVisibility,
+          "messageListVisibility",
+        );
+      }
+      if (args.color !== undefined) {
+        patchBody.color = validateLabelColor(args.color);
+      }
+      if (Object.keys(patchBody).length === 0) {
+        throw new GoogleWorkspaceError(
+          "INVALID_ARGUMENT",
+          "At least one field to update must be provided",
+        );
+      }
+      return json(
+        `/gmail/v1/users/me/labels/${encodePath(labelId)}`,
+        "PATCH",
+        patchBody,
+        false,
+      );
+    }
+    if (toolName === "gmail_delete_label") {
+      const labelId = validateUserLabelId(requiredString(args, "labelId"));
+      return json(
+        `/gmail/v1/users/me/labels/${encodePath(labelId)}`,
+        "DELETE",
+        undefined,
+        false,
+      );
+    }
+    if (toolName === "gmail_list_drafts") {
+      const params = new URLSearchParams();
+      if (typeof args.query === "string" && args.query.length > 0) {
+        params.set("q", args.query);
+      }
+      const maxResults = optionalBoundedInteger(args, "maxResults", 100);
+      if (maxResults !== undefined) {
+        params.set("maxResults", String(maxResults));
+      }
+      if (typeof args.pageToken === "string") {
+        params.set("pageToken", args.pageToken);
+      }
+      const queryStr = params.toString();
+      const path = `/gmail/v1/users/me/drafts${queryStr ? `?${queryStr}` : ""}`;
+      const result = (await json(path)) as Record<string, unknown>;
+      return {
+        drafts: Array.isArray(result.drafts)
+          ? result.drafts.flatMap((draft) => {
+              if (!draft || typeof draft !== "object") return [];
+              const item = draft as Record<string, unknown>;
+              return typeof item.id === "string"
+                ? [
+                    {
+                      id: item.id,
+                      ...(item.message && typeof item.message === "object"
+                        ? {
+                            message: {
+                              id:
+                                typeof (item.message as Record<string, unknown>).id === "string"
+                                  ? (item.message as Record<string, unknown>).id
+                                  : undefined,
+                              threadId:
+                                typeof (item.message as Record<string, unknown>).threadId === "string"
+                                  ? (item.message as Record<string, unknown>).threadId
+                                  : undefined,
+                            },
+                          }
+                        : {}),
+                    },
+                  ]
+                : [];
+            })
+          : [],
+        ...(typeof result.nextPageToken === "string"
+          ? { nextPageToken: result.nextPageToken }
+          : {}),
+      };
+    }
+    if (toolName === "gmail_get_draft") {
+      const draft = (await json(
+        `/gmail/v1/users/me/drafts/${encodePath(requiredString(args, "draftId"))}?format=full`,
+      )) as Record<string, unknown>;
+      return parseGmailDraft(draft);
+    }
+    if (toolName === "gmail_create_draft") {
+      const raw = buildRfc2822Draft(args);
+      const requestBody: { message: { raw: string; threadId?: string } } = {
+        message: {
+          raw,
+          ...(typeof args.threadId === "string" ? { threadId: args.threadId } : {}),
+        },
+      };
+      return json("/gmail/v1/users/me/drafts", "POST", requestBody, false);
+    }
+    if (toolName === "gmail_update_draft") {
+      const draftId = requiredString(args, "draftId");
+      const raw = buildRfc2822Draft(args);
+      const requestBody: { id: string; message: { raw: string; threadId?: string } } = {
+        id: draftId,
+        message: {
+          raw,
+          ...(typeof args.threadId === "string" ? { threadId: args.threadId } : {}),
+        },
+      };
+      return json(
+        `/gmail/v1/users/me/drafts/${encodePath(draftId)}`,
+        "PUT",
+        requestBody,
+        false,
+      );
+    }
+    if (toolName === "gmail_delete_draft") {
+      const draftId = requiredString(args, "draftId");
+      return json(
+        `/gmail/v1/users/me/drafts/${encodePath(draftId)}`,
+        "DELETE",
         undefined,
         false,
       );

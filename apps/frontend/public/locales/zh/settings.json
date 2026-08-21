@@ -77,6 +77,7 @@
   "googleWorkspaceSelectScopesDescription": "仅选择所需权限。写入操作需要明确重新同意。",
   "googleWorkspaceScopeGmailRead": "Gmail (只读)",
   "googleWorkspaceScopeGmailModify": "Gmail 整理 (标签/废纸篓/垃圾邮件)",
+  "googleWorkspaceScopeGmailCompose": "Gmail 草稿 (创建/更新/删除草稿)",
   "googleWorkspaceScopeCalendarRead": "Google 日历 (只读)",
   "googleWorkspaceScopeCalendarEvents": "Google 日历事件 (创建/更新/删除)",
   "googleWorkspaceScopeDriveRead": "Google 云端硬盘 (只读)",

@@ -77,6 +77,29 @@ MetaMCP enforces least-privilege scoping:
 | **Gmail** | `gmail_get_thread` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
 | **Gmail** | `gmail_list_labels` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
 | **Gmail** | `gmail_download_attachment` | Read | `https://www.googleapis.com/auth/gmail.readonly` | No (Included in default connect) |
+| **Gmail** | `gmail_mark_read` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_mark_unread` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_star` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_unstar` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_archive` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_unarchive` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_move_to_inbox` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_trash` | Write / Destructive | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_untrash` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_report_spam` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_remove_spam` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_add_labels` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_remove_labels` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_trash_thread` | Write / Destructive | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_untrash_thread` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_create_label` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_update_label` | Write | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_delete_label` | Write / Destructive | `https://www.googleapis.com/auth/gmail.modify` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_list_drafts` | Read | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_get_draft` | Read | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_create_draft` | Write | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_update_draft` | Write | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
+| **Gmail** | `gmail_delete_draft` | Write / Destructive | `https://www.googleapis.com/auth/gmail.compose` | Yes (Forced re-consent via Reconnect) |
 | **Calendar** | `calendar_list_calendars` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
 | **Calendar** | `calendar_list_events` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |
 | **Calendar** | `calendar_get_event` | Read | `https://www.googleapis.com/auth/calendar.readonly` | Yes (Explicit selection via Reconnect) |

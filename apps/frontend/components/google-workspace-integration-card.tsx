@@ -74,6 +74,12 @@ const SCOPE_OPTIONS: ScopeOption[] = [
     category: "gmail",
   },
   {
+    id: "gmail.compose",
+    labelKey: "googleWorkspaceScopeGmailCompose",
+    isWrite: true,
+    category: "gmail",
+  },
+  {
     id: "calendar.readonly",
     labelKey: "googleWorkspaceScopeCalendarRead",
     isWrite: false,

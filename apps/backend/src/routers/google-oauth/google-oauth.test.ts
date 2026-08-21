@@ -193,6 +193,16 @@ describe("Google OAuth Core & Routes", () => {
         redirectUri: "http://localhost:12009/integrations/google/callback",
         state: "test-state",
         codeChallenge: "test-challenge",
+        workspaceScopes: ["gmail.compose"],
+      }),
+    ).toThrow("forced re-consent");
+
+    expect(() =>
+      buildGoogleAuthUrl({
+        clientId: "my-client-id",
+        redirectUri: "http://localhost:12009/integrations/google/callback",
+        state: "test-state",
+        codeChallenge: "test-challenge",
         workspaceScopes: ["calendar.events"],
       }),
     ).toThrow("forced re-consent");
@@ -204,6 +214,7 @@ describe("Google OAuth Core & Routes", () => {
       codeChallenge: "test-challenge",
       workspaceScopes: [
         "gmail.modify",
+        "gmail.compose",
         "calendar.events",
         "drive.file",
         "documents",
@@ -216,6 +227,9 @@ describe("Google OAuth Core & Routes", () => {
     );
     expect(new URL(authUrl).searchParams.get("scope")).toContain(
       "https://www.googleapis.com/auth/gmail.modify",
+    );
+    expect(new URL(authUrl).searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/gmail.compose",
     );
     expect(new URL(authUrl).searchParams.get("scope")).toContain(
       "https://www.googleapis.com/auth/calendar.events",
