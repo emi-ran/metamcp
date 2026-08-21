@@ -328,16 +328,16 @@ export function EditNamespace({
                           key={server.uuid}
                           className={`flex items-start space-x-3 p-2 rounded-md cursor-pointer transition-colors ${
                             isSelected
-                              ? "bg-blue-50 border border-blue-200"
-                              : "hover:bg-gray-50"
+                              ? "bg-primary/10 border border-primary/30"
+                              : "hover:bg-muted/60"
                           }`}
                           onClick={() => handleServerToggle(server.uuid)}
                         >
                           <div
                             className={`flex-shrink-0 w-4 h-4 border rounded flex items-center justify-center mt-0.5 ${
                               isSelected
-                                ? "bg-blue-600 border-blue-600 text-white"
-                                : "border-gray-300"
+                                ? "bg-primary border-primary text-primary-foreground"
+                                : "border-border"
                             }`}
                           >
                             {isSelected && <Check className="h-3 w-3" />}
@@ -348,7 +348,7 @@ export function EditNamespace({
                               <span className="text-sm font-medium break-words">
                                 {server.name}
                               </span>
-                              <span className="text-xs text-muted-foreground px-2 py-1 bg-gray-100 rounded flex-shrink-0">
+                              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded flex-shrink-0">
                                 {server.type}
                               </span>
                             </div>
