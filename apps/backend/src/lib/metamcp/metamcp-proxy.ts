@@ -56,7 +56,7 @@ import {
   createToolOverridesListToolsMiddleware,
   mapOverrideNameToOriginal,
 } from "./metamcp-middleware/tool-overrides.functional";
-import { isBackendSessionLostError } from "./session-error";
+import { isRecoverableBackendError } from "./session-error";
 import { parseToolName } from "./tool-name-parser";
 import { toolsSyncCache } from "./tools-sync-cache";
 import { sanitizeName } from "./utils";
@@ -128,11 +128,42 @@ export const createServer = async (
 ) => {
   const toolToClient: Record<string, ConnectedClient> = {};
   const toolToServerUuid: Record<string, string> = {};
+  const toolReadOnly: Record<string, ConnectedClient | undefined> = {};
   const promptToClient: Record<string, ConnectedClient> = {};
   const resourceToClient: Record<string, ConnectedClient> = {};
   const googleWorkspaceClient = new GoogleWorkspaceClient({
     connections: googleConnectionsRepository,
   });
+
+  // Identity metadata survives pool eviction so every cached surface can refresh.
+  const clientServerUuids = new WeakMap<ConnectedClient, string>();
+  const refreshServerMappings = (uuid: string, fresh: ConnectedClient) => {
+    if (!mcpServerPool.touchSession(sessionId, uuid, fresh)) return;
+    clientServerUuids.set(fresh, uuid);
+    for (const mappings of [toolToClient, promptToClient, resourceToClient]) {
+      for (const [key, cached] of Object.entries(mappings)) {
+        if (clientServerUuids.get(cached) === uuid) mappings[key] = fresh;
+      }
+    }
+  };
+  const currentCachedClient = async (cached: ConnectedClient) => {
+    const uuid = clientServerUuids.get(cached);
+    if (!uuid) throw new Error("Cached backend has no server identity");
+    if (mcpServerPool.touchSession(sessionId, uuid, cached)) return cached;
+    const serverParams = await getMcpServers(namespaceUuid, includeInactiveServers);
+    const params = serverParams[uuid];
+    if (!params) throw new Error(`Backend server ${uuid} no longer present`);
+    const forwarded = handlerContext.clientRequestHeaders
+      ? extractForwardedHeaders(handlerContext.clientRequestHeaders, serverParams)
+      : {};
+    const effectiveParams = forwarded[uuid]
+      ? { ...params, headers: mergeHeaders(params.headers, forwarded[uuid]) }
+      : params;
+    const fresh = await mcpServerPool.getSession(sessionId, uuid, effectiveParams, namespaceUuid);
+    if (!fresh) throw new Error(`No current session for backend ${uuid}`);
+    refreshServerMappings(uuid, fresh);
+    return fresh;
+  };
 
   // Helper function to detect if a server is the same instance
   const isSameServerInstance = (
@@ -371,7 +402,7 @@ export const createServer = async (
             pool: mcpServerPool,
             sessionId: context.sessionId,
             serverUuid: mcpServerUuid,
-            params,
+            params: effectiveParams,
             namespaceUuid,
             operation: "tools/list",
             serverName,
@@ -426,11 +457,23 @@ export const createServer = async (
             );
           }
 
+          // Do not let a late discovery on an evicted identity overwrite a
+          // replacement generation's routes or replay metadata.
+          if (!mcpServerPool.touchSession(context.sessionId, mcpServerUuid, activeSession)) return;
+          for (const [key, uuid] of Object.entries(toolToServerUuid)) {
+            if (uuid === mcpServerUuid) {
+              delete toolToClient[key];
+              delete toolToServerUuid[key];
+              delete toolReadOnly[key];
+            }
+          }
+          refreshServerMappings(mcpServerUuid, activeSession);
           // Use original tools for client response (middleware will be applied later)
           const toolsWithSource = allServerTools.map((tool) => {
             const toolName = `${sanitizeName(serverName)}__${tool.name}`;
             toolToClient[toolName] = activeSession;
             toolToServerUuid[toolName] = mcpServerUuid;
+            toolReadOnly[toolName] = tool.annotations?.readOnlyHint === true ? activeSession : undefined;
 
             return {
               ...tool,
@@ -501,6 +544,7 @@ export const createServer = async (
     // Try to find the tool in pre-populated mappings first
     let clientForTool = toolToClient[name];
     let serverUuid = toolToServerUuid[name];
+    if (clientForTool) clientForTool = await currentCachedClient(clientForTool);
 
     // If not found in mappings, dynamically find the server and route the call
     if (!clientForTool || !serverUuid) {
@@ -567,10 +611,14 @@ export const createServer = async (
                   ) {
                     foundTool = true;
                     // Tool exists, populate mappings for future use and use it
+                    refreshServerMappings(mcpServerUuid, session);
                     clientForTool = session;
                     serverUuid = mcpServerUuid;
                     toolToClient[name] = session;
                     toolToServerUuid[name] = mcpServerUuid;
+                    toolReadOnly[name] = result.tools.find(
+                      (tool: Tool) => tool.name === originalToolName,
+                    )?.annotations?.readOnlyHint === true ? session : undefined;
                     break;
                   }
 
@@ -633,10 +681,11 @@ export const createServer = async (
         mcpRequestOptions,
       );
 
+    const canReplay = toolReadOnly[name] === clientForTool;
     try {
       return (await callOnce(clientForTool)) as CallToolResult;
     } catch (error) {
-      if (!isBackendSessionLostError(error)) {
+      if (!isRecoverableBackendError(error)) {
         logger.error(
           `Error calling tool "${name}" through ${
             clientForTool.client.getServerVersion()?.name || "unknown"
@@ -647,11 +696,11 @@ export const createServer = async (
       }
 
       logger.warn(
-        `Backend reported session lost for server ${serverUuid} on tool "${name}"; invalidating pool and retrying once.`,
+        `Backend connection lost for server ${serverUuid} on tool "${name}"; reconnecting (only explicitly read-only tools may replay).`,
       );
 
-      await mcpServerPool.invalidateServerConnection(sessionId, serverUuid);
-      delete toolToClient[name];
+      await mcpServerPool.invalidateServerConnection(sessionId, serverUuid, clientForTool);
+      // Retain identities; they cannot be used until the pool owns them again.
 
       const serverParamsMap = await getMcpServers(
         namespaceUuid,
@@ -664,10 +713,16 @@ export const createServer = async (
         );
       }
 
+      const forwarded = handlerContext.clientRequestHeaders
+        ? extractForwardedHeaders(handlerContext.clientRequestHeaders, serverParamsMap)
+        : {};
+      const effectiveParams = forwarded[serverUuid]
+        ? { ...params, headers: mergeHeaders(params.headers, forwarded[serverUuid]) }
+        : params;
       const freshSession = await mcpServerPool.getSession(
         sessionId,
         serverUuid,
-        params,
+        effectiveParams,
         namespaceUuid,
       );
       if (!freshSession) {
@@ -676,7 +731,21 @@ export const createServer = async (
         );
       }
 
+      refreshServerMappings(serverUuid, freshSession);
       toolToClient[name] = freshSession;
+
+      // The first request may have reached the backend. Never replay an
+      // uncertain write or a tool lacking an explicit read-only annotation.
+      if (!canReplay) throw error;
+      // Re-discover on the replacement generation before replay: a tool may
+      // have disappeared or changed into a write during the outage.
+      try {
+        await originalListToolsHandler({ params: {} } as Parameters<ListToolsHandler>[0], context);
+      } catch {
+        throw error;
+      }
+      if (toolReadOnly[name] !== freshSession ||
+          !mcpServerPool.touchSession(sessionId, serverUuid, freshSession)) throw error;
 
       try {
         return (await callOnce(freshSession)) as CallToolResult;
@@ -750,7 +819,10 @@ export const createServer = async (
   // Get Prompt Handler
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name } = request.params;
-    const clientForPrompt = promptToClient[name];
+    const cachedPrompt = promptToClient[name];
+    const clientForPrompt = cachedPrompt
+      ? await currentCachedClient(cachedPrompt)
+      : undefined;
 
     if (!clientForPrompt) {
       throw new Error(`Unknown prompt: ${name}`);
@@ -884,7 +956,7 @@ export const createServer = async (
             pool: mcpServerPool,
             sessionId,
             serverUuid: uuid,
-            params,
+            params: effectiveParams,
             namespaceUuid,
             operation: "prompts/list",
             serverName,
@@ -905,6 +977,7 @@ export const createServer = async (
             },
           });
 
+          refreshServerMappings(uuid, activeSession);
           if (result.prompts) {
             const promptsWithSource = result.prompts.map((prompt) => {
               const promptName = `${sanitizeName(serverName)}__${prompt.name}`;
@@ -1032,7 +1105,7 @@ export const createServer = async (
             pool: mcpServerPool,
             sessionId,
             serverUuid: uuid,
-            params,
+            params: effectiveParams,
             namespaceUuid,
             operation: "resources/list",
             serverName,
@@ -1053,6 +1126,7 @@ export const createServer = async (
             },
           });
 
+          refreshServerMappings(uuid, activeSession);
           if (result.resources) {
             const resourcesWithSource = result.resources.map((resource) => {
               resourceToClient[resource.uri] = activeSession;
@@ -1085,7 +1159,10 @@ export const createServer = async (
   // Read Resource Handler
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-    const clientForResource = resourceToClient[uri];
+    const cachedResource = resourceToClient[uri];
+    const clientForResource = cachedResource
+      ? await currentCachedClient(cachedResource)
+      : undefined;
 
     if (!clientForResource) {
       throw new Error(`Unknown resource: ${uri}`);
@@ -1213,7 +1290,7 @@ export const createServer = async (
               pool: mcpServerPool,
               sessionId,
               serverUuid: uuid,
-              params,
+              params: effectiveParams,
               namespaceUuid,
               operation: "resources/templates/list",
               serverName,

@@ -36,6 +36,8 @@ export class McpServerPool {
   // Server parameters cache: serverUuid -> ServerParameters
   private serverParamsCache: Record<string, ServerParameters> = {};
 
+  private pendingSessions = new Map<string, Promise<ConnectedClient | undefined>>();
+
   // Track ongoing idle session creation to prevent duplicates
   private creatingIdleSessions: Set<string> = new Set();
 
@@ -115,6 +117,11 @@ export class McpServerPool {
       }
     }
 
+    for (const key of this.pendingSessions.keys()) {
+      const [sid, uuid] = JSON.parse(key) as [string, string];
+      if (uuid === serverUuid && !this.activeSessions[sid]?.[uuid]) count += 1;
+    }
+
     // Count pending idle creation
     if (this.creatingIdleSessions.has(serverUuid)) {
       count += 1;
@@ -164,10 +171,39 @@ export class McpServerPool {
     return undefined;
   }
 
+  /** Touch cached use only while this exact client is still owned by the pool. */
+  touchSession(
+    sessionId: string,
+    serverUuid: string,
+    client: ConnectedClient,
+  ): boolean {
+    if (this.activeSessions[sessionId]?.[serverUuid] !== client) return false;
+    this.sessionTimestamps[sessionId] = Date.now();
+    return true;
+  }
+
   /**
    * Get or create a session for a specific MCP server
    */
   async getSession(
+    sessionId: string,
+    serverUuid: string,
+    params: ServerParameters,
+    namespaceUuid?: string,
+  ): Promise<ConnectedClient | undefined> {
+    const key = JSON.stringify([sessionId, serverUuid]);
+    const pending = this.pendingSessions.get(key);
+    if (pending) return pending;
+    const creation = this.acquireSession(sessionId, serverUuid, params, namespaceUuid);
+    this.pendingSessions.set(key, creation);
+    try {
+      return await creation;
+    } finally {
+      if (this.pendingSessions.get(key) === creation) this.pendingSessions.delete(key);
+    }
+  }
+
+  private async acquireSession(
     sessionId: string,
     serverUuid: string,
     params: ServerParameters,
@@ -214,6 +250,7 @@ export class McpServerPool {
 
     // No idle session available — check per-server cap before spawning
     if (!this.canCreateConnectionForServer(serverUuid)) {
+      if (serverRequiresForwardedHeaders(params)) return undefined;
       // At cap: reuse the oldest active connection instead of spawning
       const reusable = this.findOldestActiveConnectionForServer(serverUuid);
       if (reusable) {
@@ -699,14 +736,17 @@ export class McpServerPool {
   async invalidateServerConnection(
     sessionId: string,
     serverUuid: string,
+    failedClient?: ConnectedClient,
   ): Promise<void> {
+    // With an observed failure, evict only aliases of that exact identity.
+    // Administrative callers omitting it retain the explicit broad invalidation.
     // Collect every doomed ConnectedClient across all active sessions plus
     // the idle slot, dropping the map entries as we go.
     const cleanupPromises: Promise<void>[] = [];
 
     for (const [sid, sessionServers] of Object.entries(this.activeSessions)) {
       const cachedClient = sessionServers[serverUuid];
-      if (!cachedClient) {
+      if (!cachedClient || (failedClient && cachedClient !== failedClient)) {
         continue;
       }
       // Each cleanup is wrapped so one failure can't strand the rest — we
@@ -728,7 +768,7 @@ export class McpServerPool {
     }
 
     const idleClient = this.idleSessions[serverUuid];
-    if (idleClient) {
+    if (idleClient && (!failedClient || idleClient === failedClient)) {
       cleanupPromises.push(
         (async () => {
           try {
@@ -746,7 +786,7 @@ export class McpServerPool {
 
     // Drop the in-flight idle-creation guard so the recovery's getSession
     // call isn't blocked from spawning a fresh connection.
-    this.creatingIdleSessions.delete(serverUuid);
+    if (!failedClient) this.creatingIdleSessions.delete(serverUuid);
 
     await Promise.all(cleanupPromises);
 
