@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="MetaMCP is a self-hosted application for connecting and composing Model Context Protocol servers." />
+    <title>MetaMCP — Personal Workspace</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8fafc; color: #202938; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 72px 24px; }
+      main { width: min(100%, 760px); margin: 0 auto; }
+      .eyebrow { color: #526178; font-size: .8rem; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 16px 0; font-size: clamp(2.35rem, 7vw, 4rem); line-height: 1.04; letter-spacing: -.045em; }
+      h2 { margin: 40px 0 12px; font-size: 1.35rem; letter-spacing: -.02em; }
+      p, li { color: #536176; font-size: 1.05rem; line-height: 1.78; }
+      a { color: #2458bc; text-underline-offset: 4px; }
+      nav { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 32px; padding-top: 22px; border-top: 1px solid #dce2ea; }
+      @media (prefers-color-scheme: dark) { :root { background: #10141b; color: #e5eaf1; } p, li, .eyebrow { color: #aeb9c8; } a { color: #98b9ff; } nav { border-color: #303846; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Personal instance</p>
+      <h1>MetaMCP</h1>
+      <p>MetaMCP is an application for configuring Model Context Protocol (MCP) servers, grouping them into namespaces, and making the tools you choose available through MCP endpoints.</p>
+      <p>This privately operated instance is used by its owner. Sign-in is required to use its management features. Connections to Google services are optional and are made only when the account owner chooses to connect a Google account.</p>
+      <h2>Google Workspace integration</h2>
+      <p>When enabled, the integration can provide access to Google services such as Gmail, Calendar, Drive, Docs, and Sheets. It uses user-authorized OAuth access. Available tools and permissions depend on the scopes explicitly enabled by the account owner. Read access is distinct from write or delete access; Google re-consent is required for supported write permissions.</p>
+      <p>See the <a href="/google-workspace/privacy.html">Privacy Policy</a> for details about Google data and the <a href="/google-workspace/terms.html">Terms of Service</a> for conditions of use.</p>
+      <nav aria-label="Legal information">
+        <a href="/google-workspace/privacy.html">Privacy Policy</a>
+        <a href="/google-workspace/terms.html">Terms of Service</a>
+      </nav>
+    </main>
+  </body>
+</html>

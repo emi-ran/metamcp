@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="How this privately operated MetaMCP instance handles account and Google user data." />
+    <title>Privacy Policy — MetaMCP</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8fafc; color: #202938; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 64px 24px; }
+      main { width: min(100%, 760px); margin: 0 auto; }
+      .eyebrow { color: #526178; font-size: .8rem; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 12px 0; font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.08; letter-spacing: -.04em; }
+      h2 { margin: 34px 0 8px; font-size: 1.25rem; letter-spacing: -.02em; }
+      p, li { color: #536176; font-size: 1rem; line-height: 1.78; }
+      a { color: #2458bc; text-underline-offset: 4px; }
+      nav { display: flex; gap: 22px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #dce2ea; }
+      @media (prefers-color-scheme: dark) { :root { background: #10141b; color: #e5eaf1; } p, li, .eyebrow { color: #aeb9c8; } a { color: #98b9ff; } nav { border-color: #303846; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow"><a href="/google-workspace/">MetaMCP</a> · Personal instance</p>
+      <h1>Privacy Policy</h1>
+      <p><strong>Last updated: October 22, 2026</strong></p>
+      <p>This policy describes how the privately operated MetaMCP instance at mmcp.emirhanc.com handles information when its owner uses the application, including its optional Google Workspace integration. This is a personal instance operated for its owner, not a public service offered to other users.</p>
+      <h2>Information processed by MetaMCP</h2>
+      <p>MetaMCP processes account information needed to authenticate the instance owner, along with the server configurations, namespaces, endpoints, and other settings the owner chooses to save. If Google Workspace is connected, MetaMCP receives the Google account identifiers and OAuth tokens needed to provide the authorized connection. The account owner may also choose to run tools that request specific Google data, such as Gmail messages, calendar events, Drive files, documents, or spreadsheets.</p>
+      <h2>How Google data is used</h2>
+      <p>Google data is accessed only to carry out the Google Workspace tools and actions selected by the account owner. The available operations depend on the permissions granted to the integration and the tools activated by the owner. MetaMCP does not sell Google user data or use it to serve advertising. Google data is not used to train generalized AI or machine-learning models.</p>
+      <h2>Storage and protection</h2>
+      <p>OAuth access and refresh tokens are encrypted in the application's database at rest using AES-256-GCM. The application stores account connection details, granted scope names, token metadata, and saved configuration needed to operate the instance. Data and tokens transit between the application and Google over HTTPS when the services are available.</p>
+      <p>MetaMCP is self-hosted software. The operator controls the server, database, backups, logs, and retention settings for this instance. Those systems may process operational information such as request metadata, tool names, timestamps, account identifiers, or error details. The operator should configure access, backups, logs, and retention securely.</p>
+      <h2>Sharing</h2>
+      <p>When the owner invokes a Google Workspace tool, the relevant request is sent to Google to fulfill that action. MetaMCP does not sell or disclose Google user data to data brokers or advertising networks. If the owner configures a third-party MCP server or external client, information needed for the requested interaction may be processed by that configured service under its own terms and privacy policy.</p>
+      <h2>Retention and deletion</h2>
+      <p>Google tokens and connection records remain stored until the owner disconnects the Google account or the operator removes them. Disconnecting a Google account asks Google to revoke the token where possible and removes the local token record. Saved configurations, account records, backups, and operational logs may have separate retention periods set by the instance operator.</p>
+      <h2>Choices and contact</h2>
+      <p>The owner can decline to connect Google, limit which permissions and tools are enabled, or disconnect Google Workspace in MetaMCP settings. For questions, use the support contact displayed on the Google consent screen.</p>
+      <nav aria-label="Legal information">
+        <a href="/google-workspace/">Home</a>
+        <a href="/google-workspace/terms.html">Terms of Service</a>
+      </nav>
+    </main>
+  </body>
+</html>

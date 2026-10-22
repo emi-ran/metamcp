@@ -29,6 +29,18 @@ MetaMCP provides built-in Google Workspace integration with least-privilege OAut
 3. Fill in required application metadata (App name, User support email, Developer contact info).
 4. In the **Scopes** step, add the minimum scopes required for your planned operations (see [Minimum Scopes Table](#3-exact-minimum-scopes-table)).
 
+For a self-hosted instance operated for personal use, the owner may publish the app to avoid the seven-day refresh-token expiry imposed on most external apps in Testing. Google's personal-use exception applies only when the app is not shared with others or is used by fewer than 100 people who are all personally known to the owner. Publishing an app is separate from verification: sensitive or restricted scopes and branding can still trigger Google review, and verification requirements depend on the scopes and how the app is used. See Google's [OAuth 2.0 policies](https://developers.google.com/identity/protocols/oauth2/policies) and [refresh-token guidance](https://developers.google.com/identity/protocols/oauth2#expiration).
+
+When the Google Auth Platform requires public branding links, use pages that accurately describe your deployed instance and data handling. MetaMCP's self-hosted Docker image includes these pages:
+
+| Branding field | URL |
+| --- | --- |
+| Application home page | `https://<your-metamcp-domain>/google-workspace/index.html` |
+| Application privacy policy | `https://<your-metamcp-domain>/google-workspace/privacy.html` |
+| Application terms of service | `https://<your-metamcp-domain>/google-workspace/terms.html` |
+
+The homepage links to both policy pages. Its explicit `.html` path is public on deployments that protect application pages behind sign-in. Publish the matching files with your application before entering these URLs in Google Cloud. If you materially change your token handling, data flows, logging, or Google integration, update the privacy policy to match. Branding URLs should use a domain you own and have authorized in Google Cloud.
+
 ### 1.3 Create OAuth 2.0 Web Client Credentials
 1. Go to **APIs & Services** > **Credentials**.
 2. Click **Create Credentials** > **OAuth client ID**.
