@@ -183,6 +183,17 @@ export function GoogleWorkspaceIntegrationCard() {
     refetch: refetchStatus,
   } = trpc.frontend.googleIntegration.getStatus.useQuery();
 
+  // `expiresAt` is the short-lived Google access token (~1h), not the lifetime
+  // of the connection itself. When a refresh token is stored the access token
+  // is renewed lazily on the next Google call, so expiry is informational only.
+  const hasRefreshToken = status?.hasRefreshToken ?? false;
+  const accessTokenExpiresAt = status?.expiresAt
+    ? new Date(status.expiresAt)
+    : null;
+  const accessTokenExpired = accessTokenExpiresAt
+    ? accessTokenExpiresAt.getTime() < Date.now()
+    : false;
+
   const connectMutation = trpc.frontend.googleIntegration.getConnectUrl.useMutation({
     onSuccess: (data) => {
       if (data?.url) {
@@ -264,16 +275,13 @@ export function GoogleWorkspaceIntegrationCard() {
       };
     }
 
-    if (status.expiresAt) {
-      const expires = new Date(status.expiresAt);
-      if (expires.getTime() < Date.now()) {
-        return {
-          badge: <Badge variant="warning">{t("settings:googleWorkspaceExpired")}</Badge>,
-          icon: <AlertTriangle className="w-5 h-5 text-amber-500" />,
-          isRevoked: false,
-          isExpired: true,
-        };
-      }
+    if (accessTokenExpired && !hasRefreshToken) {
+      return {
+        badge: <Badge variant="warning">{t("settings:googleWorkspaceExpired")}</Badge>,
+        icon: <AlertTriangle className="w-5 h-5 text-amber-500" />,
+        isRevoked: false,
+        isExpired: true,
+      };
     }
 
     return {
@@ -282,7 +290,7 @@ export function GoogleWorkspaceIntegrationCard() {
       isRevoked: false,
       isExpired: false,
     };
-  }, [status, t]);
+  }, [accessTokenExpired, hasRefreshToken, status, t]);
 
   const grantedScopeSummary = useMemo(() => {
     if (!status?.scopes || status.scopes.length === 0) return [];
@@ -445,8 +453,15 @@ export function GoogleWorkspaceIntegrationCard() {
                     {t("settings:googleWorkspaceExpiresAt")}
                   </span>
                   <span className="font-medium">
-                    {new Date(status.expiresAt).toLocaleString()}
+                    {accessTokenExpired && hasRefreshToken
+                      ? t("settings:googleWorkspaceAutoRenewPending")
+                      : new Date(status.expiresAt).toLocaleString()}
                   </span>
+                  {hasRefreshToken && !accessTokenExpired && (
+                    <span className="text-muted-foreground block text-xs">
+                      {t("settings:googleWorkspaceAutoRenewHint")}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -477,7 +492,7 @@ export function GoogleWorkspaceIntegrationCard() {
                 {t("settings:googleWorkspaceConfigRequiredWarning")}
               </span>
             ) : connectionHealth.isRevoked ? (
-              t("settings:googleWorkspaceRevoked")
+              t("settings:googleWorkspaceRevokedHint")
             ) : (
               t("settings:googleWorkspaceDisconnected")
             )}

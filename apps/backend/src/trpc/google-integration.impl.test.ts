@@ -167,6 +167,7 @@ describe("googleIntegrationImplementations", () => {
         isDefault: true,
         email: "alice@company.com",
         scopes: ["gmail.readonly"],
+        hasRefreshToken: true,
       },
     ]);
 
@@ -178,6 +179,7 @@ describe("googleIntegrationImplementations", () => {
       id: "00000000-0000-4000-8000-000000000001",
       maskedEmail: "al***@company.com",
       isDefault: true,
+      hasRefreshToken: true,
     });
     expect(status.connections[0]).not.toHaveProperty("email");
   });

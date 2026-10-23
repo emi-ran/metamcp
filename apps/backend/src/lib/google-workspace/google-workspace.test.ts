@@ -111,6 +111,7 @@ function fakeStore(scopes = allScopes): GoogleConnectionStore {
       return { ...userConnection, scopes };
     }),
     upsertConnection: vi.fn(async () => undefined),
+    markRevoked: vi.fn(async () => undefined),
   };
 }
 
@@ -2142,6 +2143,7 @@ describe("GoogleWorkspaceClient", () => {
       ...fakeStore(),
       getDecryptedTokens: vi.fn(async () => ({
         ...userConnection,
+        connectionId: "11111111-1111-4111-8111-111111111111",
         expiresAt: new Date(Date.now() - 60_000),
       })),
     };
@@ -2179,10 +2181,75 @@ describe("GoogleWorkspaceClient", () => {
     expect(store.upsertConnection).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "request-user",
+        connectionId: "11111111-1111-4111-8111-111111111111",
         refreshToken: "rotated",
         accessToken: "new-access",
       }),
     );
+  });
+
+  it("marks the connection revoked when Google permanently rejects the refresh token", async () => {
+    process.env.GOOGLE_CLIENT_ID = "test-client";
+    process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+    const store = {
+      ...fakeStore(),
+      getDecryptedTokens: vi.fn(async () => ({
+        ...userConnection,
+        connectionId: "11111111-1111-4111-8111-111111111111",
+        expiresAt: new Date(Date.now() - 60_000),
+      })),
+    };
+    const client = new GoogleWorkspaceClient({
+      connections: store,
+      http: fakeHttp([
+        new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }),
+      ]),
+      sleep: vi.fn(),
+    });
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+    ).rejects.toMatchObject({ code: "NOT_CONNECTED" });
+
+    expect(store.markRevoked).toHaveBeenCalledWith(
+      "request-user",
+      "11111111-1111-4111-8111-111111111111",
+    );
+    expect(store.upsertConnection).not.toHaveBeenCalled();
+  });
+
+  it("keeps the connection intact when refresh fails for a non-permanent reason", async () => {
+    process.env.GOOGLE_CLIENT_ID = "test-client";
+    process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+    const store = {
+      ...fakeStore(),
+      getDecryptedTokens: vi.fn(async () => ({
+        ...userConnection,
+        connectionId: "11111111-1111-4111-8111-111111111111",
+        expiresAt: new Date(Date.now() - 60_000),
+      })),
+    };
+    const client = new GoogleWorkspaceClient({
+      connections: store,
+      http: fakeHttp([
+        new Response(JSON.stringify({ error: "invalid_client" }), { status: 401 }),
+      ]),
+      sleep: vi.fn(),
+    });
+
+    await expect(
+      client.execute({
+        userId: "request-user",
+        toolName: "gmail_list_labels",
+        arguments: {},
+      }),
+    ).rejects.toMatchObject({ code: "NOT_CONNECTED" });
+
+    expect(store.markRevoked).not.toHaveBeenCalled();
   });
 
   it("maps scope denial without leaking Google response content", async () => {

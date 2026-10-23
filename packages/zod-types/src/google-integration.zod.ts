@@ -22,6 +22,7 @@ export const GoogleConnectionItemSchema = z.object({
   maskedEmail: z.string().nullable().optional(),
   scopes: z.array(z.string()).default([]),
   isDefault: z.boolean().default(false),
+  hasRefreshToken: z.boolean().default(false),
   expiresAt: z.union([z.date(), z.string()]).nullable().optional(),
   updatedAt: z.union([z.date(), z.string()]).nullable().optional(),
   revokedAt: z.union([z.date(), z.string()]).nullable().optional(),
@@ -36,6 +37,7 @@ export const GoogleConnectionStatusResponseSchema = z.object({
   // Backward-compatibility fields representing default connection:
   maskedEmail: z.string().nullable().optional(),
   scopes: z.array(z.string()).optional(),
+  hasRefreshToken: z.boolean().default(false),
   expiresAt: z.union([z.date(), z.string()]).nullable().optional(),
   updatedAt: z.union([z.date(), z.string()]).nullable().optional(),
   revokedAt: z.union([z.date(), z.string()]).nullable().optional(),

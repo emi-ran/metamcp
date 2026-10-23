@@ -28,9 +28,20 @@ export interface GoogleConnectionStatus {
   email?: string | null;
   googleUserId?: string | null;
   scopes?: string[];
+  hasRefreshToken?: boolean;
   expiresAt?: Date | null;
   updatedAt?: Date | null;
   revokedAt?: Date | null;
+}
+
+function hasStoredRefreshToken(
+  conn: typeof googleConnectionsTable.$inferSelect,
+): boolean {
+  return Boolean(
+    conn.encrypted_refresh_token &&
+      conn.refresh_token_iv &&
+      conn.refresh_token_auth_tag,
+  );
 }
 
 export class GoogleConnectionsRepository {
@@ -136,6 +147,7 @@ export class GoogleConnectionsRepository {
           email: conn.email,
           googleUserId: conn.google_user_id,
           scopes: conn.scopes,
+          hasRefreshToken: hasStoredRefreshToken(conn),
           expiresAt: conn.access_token_expires_at,
           updatedAt: conn.updated_at,
           revokedAt: conn.revoked_at,
@@ -152,6 +164,7 @@ export class GoogleConnectionsRepository {
       email: conn.email,
       googleUserId: conn.google_user_id,
       scopes: conn.scopes,
+      hasRefreshToken: hasStoredRefreshToken(conn),
       expiresAt: conn.access_token_expires_at,
       updatedAt: conn.updated_at,
       revokedAt: conn.revoked_at,
@@ -263,6 +276,28 @@ export class GoogleConnectionsRepository {
         await this.setDefaultForUser(userId, remaining[0].uuid);
       }
     }
+  }
+
+  /**
+   * Marks a stored connection as revoked after Google permanently rejected its
+   * refresh token (`invalid_grant`). The row is kept so the account and granted
+   * scopes remain visible, and re-consent clears `revoked_at` again.
+   */
+  async markRevoked(userId: string, connectionId?: string | null): Promise<void> {
+    const target = connectionId
+      ? await this.getByIdForUser(userId, connectionId)
+      : await this.getByUserId(userId);
+    if (!target) return;
+    const revokedAt = new Date();
+    await db
+      .update(googleConnectionsTable)
+      .set({ revoked_at: revokedAt, updated_at: revokedAt })
+      .where(
+        and(
+          eq(googleConnectionsTable.user_id, userId),
+          eq(googleConnectionsTable.uuid, target.uuid),
+        ),
+      );
   }
 
   async setDefaultForUser(userId: string, connectionId: string): Promise<void> {

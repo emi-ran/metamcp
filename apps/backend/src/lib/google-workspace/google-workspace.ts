@@ -16,6 +16,21 @@ const GOOGLE_BASE_URL = "https://www.googleapis.com";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
 
+/**
+ * Google returns `400 invalid_grant` when the refresh token itself is dead
+ * (user revoked access, token expired, or the client's grants were reset).
+ * That is permanent and must be distinguishable from a rejected client or a
+ * transient upstream failure, which must not revoke the stored connection.
+ */
+function isInvalidGrantBody(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    return parsed?.error === "invalid_grant";
+  } catch {
+    return false;
+  }
+}
+
 const scopes = {
   gmailRead: "https://www.googleapis.com/auth/gmail.readonly",
   gmailModify: "https://www.googleapis.com/auth/gmail.modify",
@@ -641,6 +656,7 @@ export type GoogleHttpClient = {
   fetch(input: string, init?: RequestInit): Promise<Response>;
 };
 export type GoogleConnection = {
+  connectionId?: string | null;
   accessToken: string;
   refreshToken: string | null;
   expiresAt: Date | null;
@@ -651,12 +667,14 @@ export type GoogleConnectionStore = {
   getDecryptedTokens(userId: string, connectionId?: string): Promise<GoogleConnection | null>;
   upsertConnection(input: {
     userId: string;
+    connectionId?: string | null;
     scopes: string[];
     accessToken: string;
     refreshToken?: string | null;
     expiresInSeconds?: number | null;
     email?: string | null;
   }): Promise<void>;
+  markRevoked?(userId: string, connectionId?: string | null): Promise<void>;
 };
 export type GoogleWorkspaceExecution = {
   userId?: string;
@@ -1454,6 +1472,25 @@ export class GoogleWorkspaceClient {
       body: body.toString(),
     });
     if (!response.ok) {
+      const failureBody = await response.text().catch(() => "");
+      const invalidGrant =
+        response.status === 400 && isInvalidGrantBody(failureBody);
+      if (invalidGrant) {
+        // Persist the dead refresh token so the connection status stops
+        // reporting a healthy connection that can never renew again.
+        try {
+          await this.dependencies.connections.markRevoked?.(
+            userId,
+            connection.connectionId ?? null,
+          );
+        } catch {
+          // Status bookkeeping must not mask the original auth failure.
+        }
+        throw new GoogleWorkspaceError(
+          "NOT_CONNECTED",
+          "Google rejected the refresh token (invalid_grant). Reconnect and re-consent to the required scopes.",
+        );
+      }
       throw new GoogleWorkspaceError(
         response.status === 400 || response.status === 401
           ? "NOT_CONNECTED"
@@ -1477,6 +1514,7 @@ export class GoogleWorkspaceClient {
     const refreshToken = token.refresh_token ?? connection.refreshToken;
     await this.dependencies.connections.upsertConnection({
       userId,
+      connectionId: connection.connectionId ?? null,
       scopes: connection.scopes,
       email: connection.email,
       accessToken: token.access_token,

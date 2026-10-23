@@ -68,6 +68,13 @@ describe("Google Connections & OAuth State Repositories", () => {
             }),
           }),
         }),
+        update: () => ({
+          set: (values: any) => ({
+            where: async () => {
+              storedRecord = { ...storedRecord, ...values };
+            },
+          }),
+        }),
         delete: () => ({
           where: async () => {
             storedRecord = null;
@@ -112,6 +119,7 @@ describe("Google Connections & OAuth State Repositories", () => {
       const status = await repo.getStatus("user-42");
       expect(status.connected).toBe(true);
       expect(status.email).toBe("test@gmail.com");
+      expect(status.hasRefreshToken).toBe(true);
       expect((status as any).accessToken).toBeUndefined();
       expect((status as any).encrypted_access_token).toBeUndefined();
 
@@ -121,6 +129,16 @@ describe("Google Connections & OAuth State Repositories", () => {
         connected: false,
         revokedAt: storedRecord.revoked_at,
       });
+
+      // markRevoked() persists the dead-connection state without deleting tokens
+      storedRecord.revoked_at = null;
+      const beforeMark = Date.now();
+      await repo.markRevoked("user-42");
+      expect(storedRecord.revoked_at).toBeInstanceOf(Date);
+      expect(storedRecord.revoked_at.getTime()).toBeGreaterThanOrEqual(beforeMark);
+      expect(storedRecord.encrypted_refresh_token).toBeTruthy();
+      expect(await repo.getDecryptedTokens("user-42")).toBeNull();
+      expect(await repo.getStatus("user-42")).toMatchObject({ connected: false });
     });
   });
 });

@@ -222,6 +222,16 @@ Users can revoke access at any time:
    - Encrypted token records are deleted from the database.
    - Any ongoing or future Google Workspace tool calls for that user immediately fail until reconnected.
 
+### Access Token Lifetime in the Settings Card
+
+The **Expires** field in the Settings card reports the **Google access token** expiry (about one hour), not the lifetime of the connection. Nothing is broken when that timestamp is close to the current time or already in the past:
+
+- Google access tokens live ~3600 seconds. MetaMCP stores the expiry returned by Google.
+- The refresh token is what keeps the connection alive. While a refresh token is stored, MetaMCP renews the access token lazily, immediately before the next Google Workspace tool call, and persists the new expiry.
+- The card therefore shows **Connected** with a hint that the token renews automatically, instead of flagging the connection as expired. **Token Expired** is only shown when there is no refresh token and the access token is past its expiry, which requires reconnecting.
+- Because renewal is request-driven, the stored expiry stays stale while the integration is idle; the next tool call refreshes it. Publishing the OAuth app removes Google's seven-day refresh-token limit for apps in Testing, but it never changes the one-hour access-token lifetime.
+- If Google permanently rejects the refresh token (`invalid_grant`, for example after the user removed access in their Google Account), MetaMCP marks the connection as **Access Revoked** instead of pretending it is still connected. The encrypted tokens and granted scopes stay stored, and **Reconnect / Update Permissions** clears the state. Transient failures (network errors, 5xx, or a rejected client ID/secret) never revoke the stored connection.
+
 ## 7. Production Checklist
 
 - [ ] **Public URL**: `APP_URL` configured with valid HTTPS hostname and no trailing slash.
