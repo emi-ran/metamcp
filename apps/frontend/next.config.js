@@ -4,6 +4,11 @@ const nextConfig = {
   experimental: {
     proxyTimeout: 1000 * 120,
   },
+  eslint: {
+    // `next build` lint only emits warnings for this repo and costs ~40s of
+    // every image build. Type checking stays enabled; run ESLint separately.
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     // Use localhost for rewrites since frontend and backend run in the same container
     const backendUrl = "http://localhost:12009";

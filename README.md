@@ -299,6 +299,27 @@ For more details and alternative approaches, see [issue #76](https://github.com/
 
 🛠️ **Solution**: Customize the Dockerfile to add dependencies or pre-install packages to reduce cold start time.
 
+### Production image contents
+
+The production Dockerfile uses a slim Debian-based Node image and copies the
+pinned `uv`/`uvx` binaries, rather than shipping a full build-toolchain image.
+Python 3, Git, npm/npx, pnpm, curl, CA certificates, and the PostgreSQL client remain
+available for STDIO servers, health checks, and migrations. Compilers, development
+headers, and Yarn are not included; MCP packages that compile native extensions
+may need a custom image with the required build dependencies.
+
+The frontend runs Next.js standalone output. The backend and migration CLI are
+packaged by `scripts/prepare-backend-runtime.cjs` using the file tracer bundled
+with the locked Next version. Only traced runtime files are copied; there is no
+second production dependency install or backend copy of Next/SWC/Vitest. The
+workspace lockfile and local development dependency policy are unchanged.
+
+BuildKit caches the pnpm store, Turbo cache, and Next build cache. ESLint is run
+separately (`pnpm lint`); Next build still checks types. When adding dynamic
+runtime imports or changing migration tooling, update the tracer entrypoints if
+needed and verify a fresh container's migrations, login page, authentication,
+health endpoint, and representative STDIO servers before deploying.
+
 ## 🧾 Log Levels
 
 MetaMCP’s backend writes logs to files and optionally mirrors selected levels to the console. Control console mirroring with the `LOG_LEVEL` environment variable.

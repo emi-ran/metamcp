@@ -190,6 +190,14 @@ volumes:
 
 ### 3.4 Start MetaMCP
 
+When building from source, the production Dockerfile uses a slim Node/Debian base
+with pinned uv binaries, Next standalone output, and traced backend/migration
+files. It excludes compiler toolchains and frontend/test-only backend peers.
+Python 3, Git, npm/npx, pnpm, curl, and PostgreSQL clients are retained. MCP
+packages requiring native compilation need a custom image with their build
+dependencies. See the repository README's **Production image contents** section
+for packaging and validation requirements.
+
 ```bash
 # Pull images and start services
 docker-compose up -d

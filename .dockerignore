@@ -1,19 +1,31 @@
-# Dependencies
+# Dependencies (also nested workspace copies, otherwise a local `pnpm install`
+# leaks symlink farms into the image and clobbers the container node_modules)
 node_modules
+**/node_modules
+
+# Build output (nested paths must be matched explicitly)
+.next
+**/.next
+dist
+**/dist
+.turbo
+**/.turbo
+backend-runtime
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Production builds
-.next
-dist
-build
+logs
+*.log
 
 # Environment files
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
 # Git
 .git
@@ -33,10 +45,6 @@ docker-compose*.yml
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-logs
-*.log
 
 # Runtime data
 pids

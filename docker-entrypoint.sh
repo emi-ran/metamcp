@@ -23,7 +23,7 @@ run_migrations() {
     if [ -d "drizzle" ] && [ "$(ls -A drizzle/*.sql 2>/dev/null)" ]; then
         echo "Found migration files, running migrations..."
         # Use local drizzle-kit since env vars are available at system level in Docker
-        if pnpm exec drizzle-kit migrate; then
+        if node node_modules/drizzle-kit/bin.cjs migrate; then
             echo "Migrations completed successfully!"
         else
             echo "❌ Migration failed! Exiting..."
@@ -63,10 +63,10 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
 fi
 echo "✅ Backend server started successfully (PID: $BACKEND_PID)"
 
-# Start frontend
+# Start frontend (Next.js standalone server, self-contained node_modules)
 echo "Starting frontend server..."
-cd /app/apps/frontend
-PORT=12008 pnpm start &
+cd /app/apps/frontend/.next/standalone
+HOSTNAME=0.0.0.0 PORT=12008 node apps/frontend/server.js &
 FRONTEND_PID=$!
 
 # Wait a moment for frontend to start
@@ -99,4 +99,4 @@ echo "Frontend running on port 12008"
 
 # Wait for both processes
 wait $BACKEND_PID
-wait $FRONTEND_PID 
+wait $FRONTEND_PID

@@ -187,6 +187,13 @@ volumes:
 
 ### 3.4 启动 MetaMCP
 
+从源码构建时，生产 Dockerfile 使用精简的 Node/Debian 基础镜像、固定版本的
+uv 二进制、Next standalone 输出以及跟踪得到的后端和迁移运行时文件。不包含编译
+工具链，也不会将仅供前端或测试使用的 peer 依赖复制到后端。保留 Python 3、Git、
+npm/npx、pnpm、curl 和 PostgreSQL 客户端。需要编译原生扩展的 MCP 包应使用安装了
+所需构建依赖的自定义镜像。打包方式和验证要求请参阅仓库 README 的
+**Production image contents** 部分。
+
 ```bash
 # 拉取镜像并启动服务
 docker-compose up -d
