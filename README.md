@@ -538,3 +538,12 @@ The endpoint-scoped `admin/reset-errors` and `admin/error-status` routes are dis
 ### Dependency audit status — 29 October 2026
 
 `pnpm audit --prod` reported 145 advisory findings (8 critical, 57 high, 70 moderate and 10 low) across workspace dependency paths. These findings remain unresolved and require individual applicability and dependency review; successful tests or builds do not establish that the deployment is free of vulnerabilities.
+
+
+### Dependency audit follow-up — 29 October 2026
+
+Workspace dependencies were updated, including Better Auth 1.7.14 and Drizzle ORM 0.45.4. Scoped overrides update vulnerable transitive Vite, PostCSS and esbuild versions; Vite 7.3.7 is explicitly installed in frontend and backend development dependencies to satisfy peer resolution. Both `pnpm audit` and `pnpm audit --prod` reported zero advisories in this snapshot. Backend build, TypeScript, 338 backend tests and 26 proxy recovery tests passed. These checks do not replace real PostgreSQL, SMTP/OAuth, MCP server or deployed runtime integration tests. pnpm reports `next-runtime-env` peer ranges for Next 14 and React 18 while this project uses Next 15 and React 19; compatibility remains to be verified. The prior 145-finding audit record is historical and superseded by this scan.
+
+**OIDC migration:** Better Auth 1.7 uses `${APP_URL}/api/auth/callback/<providerId>` instead of `${APP_URL}/api/auth/oauth2/callback/<providerId>`. Update the registered redirect URI at the OIDC provider before deployment; existing OIDC integration must be verified against a test provider. Do not treat the zero audit count as deployment readiness.
+
+The isolated Docker image build completed after retaining drizzle-kit 0.31.9 for the existing migration runtime tracer. A synthetic Better Auth OIDC sign-in initiation returned the new callback URL; token exchange, real-provider login and existing-session compatibility were not tested. Docker tracing produced missing optional dependency warnings.
