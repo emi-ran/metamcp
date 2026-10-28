@@ -210,6 +210,11 @@ pnpm dev
 
 ## 🔌 MCP Protocol Compatibility
 
+MCP requests use explicit 1 MiB body and 10,000 tool-input-element limits;
+Streamable HTTP batches are capped at 100 messages. See
+[request limits and SDK upgrade notes](docs/MCP_REQUEST_LIMITS.md) for transport
+coverage, configuration, redirect compatibility, and OAuth issuer-binding caveats.
+
 - ✅ **Tools, Resources, and Prompts** supported
 - ✅ **OAuth-enabled MCP servers** tested for 03-26 version
 
@@ -524,3 +529,12 @@ Some code inspired by:
 Not directly used the code by took ideas from
 - https://github.com/open-webui/openapi-servers
 - https://github.com/open-webui/mcpo
+
+### Endpoint admin operations and tool policy
+
+The endpoint-scoped `admin/reset-errors` and `admin/error-status` routes are disabled (HTTP 410). Endpoint credentials do not grant global server administration, and the former reset also restarted all namespaces. Manage servers through the authenticated management interface. Tool listing and invocation require an unambiguous server in the endpoint namespace and an ACTIVE tool mapping; missing mappings and policy lookup failures are denied. Ensure mappings exist before upgrading.
+
+
+### Dependency audit status — 29 October 2026
+
+`pnpm audit --prod` reported 145 advisory findings (8 critical, 57 high, 70 moderate and 10 low) across workspace dependency paths. These findings remain unresolved and require individual applicability and dependency review; successful tests or builds do not establish that the deployment is free of vulnerabilities.

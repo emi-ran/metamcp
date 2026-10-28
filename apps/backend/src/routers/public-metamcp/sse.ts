@@ -14,6 +14,7 @@ import { buildAdminToolsOptions } from "../../lib/admin-mcp/build-admin-tools-op
 import { extractClientHeaders } from "../../lib/metamcp/header-forwarding";
 import { MetaMCPHandlerContext } from "../../lib/metamcp/metamcp-middleware/functional-middleware";
 import { metaMcpServerPool } from "../../lib/metamcp/metamcp-server-pool";
+import { parseMcpSseBody } from "../../lib/metamcp/request-limits";
 import { SessionLifetimeManagerImpl } from "../../lib/session-lifetime-manager";
 
 const sseRouter = express.Router();
@@ -137,6 +138,7 @@ sseRouter.post(
   lookupEndpoint,
   authenticateApiKey,
   rateLimitMiddleware,
+  parseMcpSseBody,
   async (req, res) => {
     // const authReq = req as ApiKeyAuthenticatedRequest;
     // const { namespaceUuid, endpointName } = authReq;
@@ -154,7 +156,7 @@ sseRouter.post(
         res.status(404).end("Session not found");
         return;
       }
-      await transport.handlePostMessage(req, res);
+      await transport.handlePostMessage(req, res, req.body);
     } catch (error) {
       logger.error("Error in public endpoint /message route:", error);
       res.status(500).json(error);

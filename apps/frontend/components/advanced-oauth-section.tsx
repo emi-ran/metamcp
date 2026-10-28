@@ -78,6 +78,27 @@ export function AdvancedOAuthSection({
 
           <div className="flex flex-col gap-2">
             <label
+              htmlFor={`${idPrefix}-oauth-issuer`}
+              className="text-sm font-medium"
+            >
+              OAuth authorization-server issuer
+            </label>
+            <Input
+              id={`${idPrefix}-oauth-issuer`}
+              {...form.register("oauth_issuer")}
+              type="url"
+              placeholder="https://auth.example.com"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              For pre-registered clients, enter the authorization server where
+              this client was registered. Unbound legacy credentials cannot be
+              reused; authorize this connection again after saving.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label
               htmlFor={`${idPrefix}-oauth-client-id`}
               className="text-sm font-medium"
             >
@@ -211,6 +232,7 @@ export function AdvancedOAuthSection({
             className="text-xs"
             onClick={() => {
               setOauthField("oauth_client_id", "");
+              setOauthField("oauth_issuer", "");
               setOauthField("oauth_client_secret", "");
               setOauthField("oauth_authorization_endpoint", "");
               setOauthField("oauth_token_endpoint", "");

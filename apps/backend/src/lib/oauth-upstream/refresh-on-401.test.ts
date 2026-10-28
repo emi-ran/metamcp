@@ -50,12 +50,15 @@ describe("tryRefreshUpstreamTokens", () => {
       mcp_server_uuid: SERVER.uuid,
       client_information: {
         client_id: "c1",
+        issuer: "https://api.example.com/",
+        pre_registered: true,
         token_endpoint: "https://upstream/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_old",
+        issuer: "https://api.example.com/",
       },
       code_verifier: null,
     });
@@ -95,6 +98,34 @@ describe("tryRefreshUpstreamTokens", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, "https://other.example.com/"])(
+    "refuses legacy/mismatched refresh without POST or mutation (%s)",
+    async (issuer) => {
+      const { tryRefreshUpstreamTokens, findByMcpServerUuid, upsert } =
+        await loadModule();
+      findByMcpServerUuid.mockResolvedValue({
+        client_information: {
+          client_id: "fixture",
+          client_secret: "fixture",
+          issuer: "https://api.example.com/",
+        },
+        tokens: {
+          access_token: "fixture",
+          token_type: "Bearer",
+          refresh_token: "fixture",
+          issuer,
+        },
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      expect(await tryRefreshUpstreamTokens(SERVER)).toMatchObject({
+        status: "failed",
+        error: "oauth_reauthorization_required",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(upsert).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns no_refresh_token when session has tokens but no refresh_token", async () => {
     const { tryRefreshUpstreamTokens, findByMcpServerUuid, upsert } =
       await loadModule();
@@ -116,12 +147,15 @@ describe("tryRefreshUpstreamTokens", () => {
       mcp_server_uuid: SERVER.uuid,
       client_information: {
         client_id: "c1",
+        issuer: "https://api.example.com/",
+        pre_registered: true,
         token_endpoint: "https://upstream/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_rotating",
+        issuer: "https://api.example.com/",
       },
       code_verifier: null,
     });
@@ -172,12 +206,15 @@ describe("tryRefreshUpstreamTokens", () => {
       mcp_server_uuid: SERVER.uuid,
       client_information: {
         client_id: "c1",
+        issuer: "https://api.example.com/",
+        pre_registered: true,
         token_endpoint: "https://upstream/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_one",
+        issuer: "https://api.example.com/",
       },
       code_verifier: null,
     });
@@ -208,12 +245,15 @@ describe("tryRefreshUpstreamTokens", () => {
       mcp_server_uuid: SERVER.uuid,
       client_information: {
         client_id: "c1",
+        issuer: "https://api.example.com/",
+        pre_registered: true,
         token_endpoint: "https://upstream/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_one",
+        issuer: "https://api.example.com/",
       },
       code_verifier: null,
     });
@@ -244,12 +284,15 @@ describe("tryRefreshUpstreamTokens", () => {
       mcp_server_uuid: SERVER.uuid,
       client_information: {
         client_id: "c1",
+        issuer: "https://api.example.com/",
+        pre_registered: true,
         token_endpoint: "https://upstream/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_revoked",
+        issuer: "https://api.example.com/",
       },
     });
 

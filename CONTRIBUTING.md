@@ -102,6 +102,11 @@ Enable debug logging by setting the auth logger level in `apps/backend/src/auth.
 
 ## How to Contribute
 
+For MCP transport/security changes, follow the bounded local verification and
+dependency checks in [MCP request limits](docs/MCP_REQUEST_LIMITS.md#local-verification).
+Build workspace packages before typechecking; security fixtures must use
+synthetic credentials and owned loopback servers, never production databases.
+
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature-name`
 3. Make your changes
@@ -123,4 +128,4 @@ Enable debug logging by setting the auth logger level in `apps/backend/src/auth.
 
 ## License
 
-By contributing to MetaMCP, you agree that your contributions will be licensed under the MIT License. 
+By contributing to MetaMCP, you agree that your contributions will be licensed under the MIT License.

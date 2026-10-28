@@ -36,6 +36,8 @@ describe("buildPreRegisteredClientInformation", () => {
     );
 
     expect(result).toEqual({
+      pre_registered: true,
+      oauth_reauthorization_required: true,
       client_id: "3MVG9.Salesforce",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
@@ -59,6 +61,8 @@ describe("buildPreRegisteredClientInformation", () => {
     );
 
     expect(result).toEqual({
+      pre_registered: true,
+      oauth_reauthorization_required: true,
       client_id: "3MVG9.Salesforce",
       client_secret: "shhh",
       redirect_uris: [REDIRECT_URI],
@@ -111,6 +115,19 @@ describe("buildPreRegisteredClientInformation", () => {
     );
 
     expect(result).not.toHaveProperty("client_secret");
+  });
+
+  it("preserves an explicitly supplied registration issuer and requires fresh authorization", () => {
+    expect(
+      buildPreRegisteredClientInformation(
+        { client_id: "fixture", issuer: "https://auth.example.com" },
+        REDIRECT_URI,
+      ),
+    ).toMatchObject({
+      issuer: "https://auth.example.com",
+      pre_registered: true,
+      oauth_reauthorization_required: true,
+    });
   });
 });
 

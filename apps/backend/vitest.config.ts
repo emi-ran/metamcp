@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -12,6 +12,8 @@ export default defineConfig({
     },
   },
   test: {
+    // This dependency-free harness uses node:test and runs separately (see docs).
+    exclude: [...configDefaults.exclude, "**/proxy-recovery.behavior.test.mjs"],
     globals: true,
     environment: "node",
     coverage: {

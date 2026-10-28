@@ -1,8 +1,9 @@
 import express from "express";
 
 import { auth } from "./auth";
-import { initializeIdleServers, initializeOnStartup } from "./lib/startup";
 import { provisionGoogleWorkspace } from "./lib/google-workspace/provisioning";
+import { isMcpTransportPath } from "./lib/metamcp/request-limits";
+import { initializeIdleServers, initializeOnStartup } from "./lib/startup";
 import googleOAuthRouter from "./routers/google-oauth";
 import mcpProxyRouter from "./routers/mcp-proxy";
 import oauthRouter from "./routers/oauth";
@@ -14,7 +15,9 @@ const app = express();
 
 // Global JSON middleware for non-proxy routes
 app.use((req, res, next) => {
-  if (req.path.startsWith("/mcp-proxy/") || req.path.startsWith("/metamcp/")) {
+  // Express mount matching is case-insensitive by default. Match that here too,
+  // otherwise /MetaMcp/... gets pre-parsed by the unrelated 50 MiB parser.
+  if (isMcpTransportPath(req.path)) {
     // Skip JSON parsing for all MCP proxy routes and public endpoints to allow raw stream access
     next();
   } else {

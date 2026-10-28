@@ -20,6 +20,10 @@ import { mcpServersRepository } from "../../db/repositories";
 import mcpProxy from "../../lib/mcp-proxy";
 import { transformDockerUrl } from "../../lib/metamcp/client";
 import { mcpServerPool } from "../../lib/metamcp/mcp-server-pool";
+import {
+  MCP_STREAMABLE_HTTP_OPTIONS,
+  parseMcpSseBody,
+} from "../../lib/metamcp/request-limits";
 import { resolveEnvVariables } from "../../lib/metamcp/utils";
 import { ProcessManagedStdioTransport } from "../../lib/stdio-transport/process-managed-transport";
 import { betterAuthMcpMiddleware } from "../../middleware/better-auth-mcp.middleware";
@@ -320,9 +324,6 @@ const createTransport = async (req: express.Request): Promise<Transport> => {
     );
 
     const transport = new SSEClientTransport(new URL(url), {
-      eventSourceInit: {
-        fetch: (url, init) => fetch(url, { ...init, headers }),
-      },
       requestInit: {
         headers,
       },
@@ -446,6 +447,7 @@ serverRouter.post("/mcp", async (req, res) => {
       const newSessionId = randomUUID();
 
       const webAppTransport = new StreamableHTTPServerTransport({
+        ...MCP_STREAMABLE_HTTP_OPTIONS,
         sessionIdGenerator: () => newSessionId,
         onsessioninitialized: (sessionId) => {
           webAppTransports.set(sessionId, webAppTransport);
@@ -817,7 +819,7 @@ serverRouter.get("/sse", async (req, res) => {
   }
 });
 
-serverRouter.post("/message", async (req, res) => {
+serverRouter.post("/message", parseMcpSseBody, async (req, res) => {
   try {
     const sessionId = req.query.sessionId;
     // logger.info(`Received POST message for sessionId ${sessionId}`);
@@ -829,7 +831,7 @@ serverRouter.post("/message", async (req, res) => {
       res.status(404).end("Session not found");
       return;
     }
-    await transport.handlePostMessage(req, res);
+    await transport.handlePostMessage(req, res, req.body);
   } catch (error) {
     logger.error("Error in /message route:", error);
     res.status(500).json(error);

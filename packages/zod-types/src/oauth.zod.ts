@@ -13,6 +13,8 @@ export const OAuthClientInformationSchema = z
     client_secret: z.string().optional(),
     client_id_issued_at: z.number().optional(),
     client_secret_expires_at: z.number().optional(),
+    // Optional for legacy reads; credential consumers reject unbound reuse.
+    issuer: z.string().url().optional(),
   })
   .passthrough();
 
@@ -23,6 +25,7 @@ export const OAuthTokensSchema = z.object({
   expires_in: z.number().optional(),
   scope: z.string().optional(),
   refresh_token: z.string().optional(),
+  issuer: z.string().url().optional(),
 });
 
 // Upstream token-response schema (RFC 6749 §5.1 plus common provider
@@ -40,6 +43,7 @@ export const UpstreamTokenResponseSchema = z
     refresh_token: z.string().optional(),
     scope: z.string().optional(),
     id_token: z.string().optional(),
+    issuer: z.string().url().optional(),
   })
   .passthrough();
 

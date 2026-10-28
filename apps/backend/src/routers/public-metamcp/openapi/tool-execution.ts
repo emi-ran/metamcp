@@ -1,10 +1,15 @@
-import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequest,
+  ErrorCode,
+  McpError,
+} from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
 
 import logger from "@/utils/logger";
 
 import { MetaMCPHandlerContext } from "../../../lib/metamcp/metamcp-middleware/functional-middleware";
 import { metaMcpServerPool } from "../../../lib/metamcp/metamcp-server-pool";
+import { assertToolInputElements } from "../../../lib/metamcp/request-limits";
 import { createMiddlewareEnabledHandlers } from "./handlers";
 import { ToolExecutionRequest } from "./types";
 
@@ -32,6 +37,7 @@ export const executeToolWithMiddleware = async (
   const toolName = req.params.tool_name;
 
   try {
+    assertToolInputElements(toolArguments);
     // Get or create persistent OpenAPI session for this namespace
     const mcpServerInstance =
       await metaMcpServerPool.getOpenApiServer(namespaceUuid);
@@ -79,6 +85,12 @@ export const executeToolWithMiddleware = async (
     // Return the result directly (simplified format)
     res.json(result);
   } catch (error) {
+    if (error instanceof McpError && error.code === ErrorCode.InvalidParams) {
+      return res.status(400).json({
+        error: "Invalid tool arguments",
+        message: error.message,
+      });
+    }
     logger.error(`Error executing tool ${toolName}:`, error);
 
     // Handle different types of errors

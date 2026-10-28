@@ -1,7 +1,9 @@
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+import { isJSONRPCRequest, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import logger from "@/utils/logger";
+
+import { assertToolInputElements } from "./metamcp/request-limits";
 
 function onClientError(error: Error) {
   // Don't log "Not connected" errors as they're expected when connections close
@@ -91,6 +93,22 @@ export default function mcpProxy({
     if (transportToServerClosed) {
       logger.debug("Ignoring message to closed server transport");
       return;
+    }
+
+    if (isJSONRPCRequest(message) && message.method === "tools/call") {
+      try {
+        assertToolInputElements(message.params?.arguments);
+      } catch (error) {
+        if (!(error instanceof McpError)) throw error;
+        transportToClient
+          .send({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: { code: error.code, message: error.message },
+          })
+          .catch(onClientError);
+        return;
+      }
     }
 
     transportToServer.send(message).catch(async (error) => {

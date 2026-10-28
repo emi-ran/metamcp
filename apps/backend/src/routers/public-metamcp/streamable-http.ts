@@ -15,6 +15,7 @@ import { buildAdminToolsOptions } from "../../lib/admin-mcp/build-admin-tools-op
 import { extractClientHeaders } from "../../lib/metamcp/header-forwarding";
 import { MetaMCPHandlerContext } from "../../lib/metamcp/metamcp-middleware/functional-middleware";
 import { metaMcpServerPool } from "../../lib/metamcp/metamcp-server-pool";
+import { MCP_STREAMABLE_HTTP_OPTIONS } from "../../lib/metamcp/request-limits";
 import { SessionLifetimeManagerImpl } from "../../lib/session-lifetime-manager";
 
 const streamableHttpRouter = express.Router();
@@ -213,6 +214,7 @@ streamableHttpRouter.post(
 
         // Create transport with the predetermined session ID
         const transport = new StreamableHTTPServerTransport({
+          ...MCP_STREAMABLE_HTTP_OPTIONS,
           enableJsonResponse: true,
           sessionIdGenerator: () => newSessionId,
           onsessioninitialized: async (sessionId) => {

@@ -4,16 +4,9 @@ import { and, eq } from "drizzle-orm";
 import logger from "@/utils/logger";
 
 import { db } from "../../../db/index";
-import {
-  mcpServersTable,
-  namespaceToolMappingsTable,
-  toolsTable,
-} from "../../../db/schema";
+import { namespaceToolMappingsTable, toolsTable } from "../../../db/schema";
 import { parseToolName } from "../tool-name-parser";
-import {
-  GOOGLE_WORKSPACE_SERVER_NAME,
-  isGoogleWorkspaceToolName,
-} from "../../google-workspace/google-workspace";
+import { resolveNamespaceServer } from "./tool-identity";
 import {
   CallToolMiddleware,
   ListToolsMiddleware,
@@ -143,7 +136,7 @@ async function getToolStatus(
       `Error fetching tool status for ${toolName} in namespace ${namespaceUuid}:`,
       error,
     );
-    return null;
+    throw error;
   }
 }
 
@@ -152,20 +145,6 @@ async function getToolStatus(
 /**
  * Get server UUID by name
  */
-async function getServerUuidByName(serverName: string): Promise<string | null> {
-  try {
-    const [server] = await db
-      .select({ uuid: mcpServersTable.uuid })
-      .from(mcpServersTable)
-      .where(eq(mcpServersTable.name, serverName));
-
-    return server?.uuid || null;
-  } catch (error) {
-    logger.error(`Error fetching server UUID for ${serverName}:`, error);
-    return null;
-  }
-}
-
 /**
  * Filter tools based on their status in the namespace
  */
@@ -185,23 +164,14 @@ async function filterActiveTools(
       try {
         const parsed = parseToolName(tool.name);
         if (!parsed) {
-          // If tool name doesn't follow expected format, include it
-          activeTools.push(tool);
+          // Unresolvable tool names cannot be authorized.
           return;
         }
 
-        const serverUuid = await getServerUuidByName(parsed.serverName);
-        if (!serverUuid) {
-          if (
-            sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-            isGoogleWorkspaceToolName(parsed.originalToolName)
-          ) {
-            return;
-          }
-          // If server not found, include the tool (fallback behavior)
-          activeTools.push(tool);
-          return;
-        }
+        const serverUuid = (
+          await resolveNamespaceServer(parsed.serverName, namespaceUuid)
+        )?.uuid;
+        if (!serverUuid) return;
 
         const status = await getToolStatus(
           namespaceUuid,
@@ -212,20 +182,13 @@ async function filterActiveTools(
 
         // First-party Workspace tools deny by default. Catalog provisioning
         // creates INACTIVE mappings; missing mapping must never expose it.
-        if (
-          (sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-            isGoogleWorkspaceToolName(parsed.originalToolName) &&
-            status === "ACTIVE") ||
-          (!sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-            (status === null || status === "ACTIVE"))
-        ) {
+        if (status === "ACTIVE") {
           activeTools.push(tool);
         }
         // If status is "INACTIVE", tool is filtered out
       } catch (error) {
         logger.error(`Error checking tool status for ${tool.name}:`, error);
-        // On error, include the tool (fail-safe behavior)
-        activeTools.push(tool);
+        // Deny when policy cannot be verified.
       }
     }),
   );
@@ -256,13 +219,7 @@ async function isToolAllowed(
       useCache,
     );
 
-    const isGoogleWorkspaceTool =
-      sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-      isGoogleWorkspaceToolName(parsed.originalToolName);
-
-    // Workspace tools require an explicit active mapping. Existing upstream
-    // server behavior remains backward-compatible when mapping is absent.
-    if ((isGoogleWorkspaceTool && status === "ACTIVE") || (!isGoogleWorkspaceTool && (status === null || status === "ACTIVE"))) {
+    if (status === "ACTIVE") {
       return { allowed: true };
     }
 
@@ -276,23 +233,8 @@ async function isToolAllowed(
       `Error checking if tool ${toolName} is allowed in namespace ${namespaceUuid}:`,
       error,
     );
-    if (
-      parsed &&
-      sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-      isGoogleWorkspaceToolName(parsed.originalToolName)
-    ) {
-      return {
-        allowed: false,
-        reason: "Google Workspace policy status could not be verified",
-      };
-    }
-    // Preserve existing upstream behavior for non-first-party server failures.
-    return { allowed: true };
+    return { allowed: false, reason: "Tool policy could not be verified" };
   }
-}
-
-function sanitizeGoogleWorkspacePrefix(serverName: string): boolean {
-  return serverName === GOOGLE_WORKSPACE_SERVER_NAME;
 }
 
 /**
@@ -347,48 +289,35 @@ export function createFilterCallToolMiddleware(
       // We need to get serverUuid somehow - this would need to be passed through context
       // For now, let's extract it from the tool name format
       const parsed = parseToolName(toolName);
-      if (parsed) {
-        const serverUuid = await getServerUuidByName(parsed.serverName);
-        if (serverUuid) {
-          const { allowed, reason } = await isToolAllowed(
+      let allowed = false;
+      let reason = "Tool policy could not be verified";
+      try {
+        const server =
+          parsed &&
+          (await resolveNamespaceServer(
+            parsed.serverName,
+            context.namespaceUuid,
+          ));
+        if (server) {
+          const result = await isToolAllowed(
             toolName,
             context.namespaceUuid,
-            serverUuid,
+            server.uuid,
             useCache,
           );
-
-          if (!allowed) {
-            // Return error response instead of calling the handler
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: customErrorMessage(
-                    toolName,
-                    reason || "Unknown reason",
-                  ),
-                },
-              ],
-              isError: true,
-            };
-          }
-        } else if (
-          sanitizeGoogleWorkspacePrefix(parsed.serverName) &&
-          isGoogleWorkspaceToolName(parsed.originalToolName)
-        ) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: customErrorMessage(
-                  toolName,
-                  "Google Workspace policy status could not be verified",
-                ),
-              },
-            ],
-            isError: true,
-          };
+          allowed = result.allowed;
+          reason = result.reason || reason;
         }
+      } catch (error) {
+        logger.error(`Error resolving tool ${toolName}:`, error);
+      }
+      if (!allowed) {
+        return {
+          content: [
+            { type: "text", text: customErrorMessage(toolName, reason) },
+          ],
+          isError: true,
+        };
       }
 
       // Tool is allowed, call the original handler

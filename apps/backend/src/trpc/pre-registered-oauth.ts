@@ -16,6 +16,9 @@ export function buildPreRegisteredClientInformation(
   }
 
   const clientInfo: Record<string, unknown> = {
+    pre_registered: true,
+    oauth_reauthorization_required: true,
+    ...(oauth.issuer && { issuer: oauth.issuer }),
     client_id: oauth.client_id.trim(),
     redirect_uris: [redirectUri],
     grant_types: ["authorization_code", "refresh_token"],

@@ -24,11 +24,9 @@ import {
   Progress,
   PromptListChangedNotificationSchema,
   PromptReference,
-  Request,
   ResourceListChangedNotificationSchema,
   ResourceReference,
   ResourceUpdatedNotificationSchema,
-  Result,
   ServerCapabilities,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -373,8 +371,25 @@ export function useConnection({
         const headers: HeadersInit = {};
 
         // Use manually provided bearer token if available, otherwise use OAuth tokens
-        const token =
-          bearerToken || (await authProvider.tokens())?.access_token;
+        const usesOAuth =
+          !bearerToken &&
+          !isMetaMCP &&
+          transportType !== McpServerTypeEnum.enum.STDIO;
+        const oauthTokens = usesOAuth ? await authProvider.tokens() : undefined;
+        if (
+          usesOAuth &&
+          !oauthTokens &&
+          (await authProvider.reauthorizationRequired())
+        ) {
+          toast.info("OAuth authorization required again for this connection.");
+          if (
+            await handleAuthError(new Error("401 OAuth authorization required"))
+          ) {
+            return connect(undefined, retryCount + 1);
+          }
+          return;
+        }
+        const token = bearerToken || oauthTokens?.access_token;
         if (token) {
           const authHeaderName = headerName || "Authorization";
 
@@ -413,7 +428,6 @@ export function useConnection({
               ) =>
                 fetch(url, {
                   ...init,
-                  headers,
                   credentials: "include",
                 }),
             },
@@ -433,7 +447,6 @@ export function useConnection({
               mcpProxyServerUrl.searchParams.append("args", args);
               mcpProxyServerUrl.searchParams.append("env", JSON.stringify(env));
               transportOptions = {
-                authProvider: authProvider,
                 eventSourceInit: {
                   fetch: (
                     url: string | URL | globalThis.Request,
@@ -441,7 +454,6 @@ export function useConnection({
                   ) =>
                     fetch(url, {
                       ...init,
-                      headers,
                       credentials: "include",
                     }),
                 },
@@ -470,7 +482,6 @@ export function useConnection({
                   ) =>
                     fetch(url, {
                       ...init,
-                      headers,
                       credentials: "include",
                     }),
                 },
@@ -492,7 +503,6 @@ export function useConnection({
               mcpProxyServerUrl = new URL(`/mcp-proxy/server/mcp`, getAppUrl());
               mcpProxyServerUrl.searchParams.append("url", url);
               transportOptions = {
-                authProvider: authProvider,
                 eventSourceInit: {
                   fetch: (
                     url: string | URL | globalThis.Request,
@@ -500,7 +510,6 @@ export function useConnection({
                   ) =>
                     fetch(url, {
                       ...init,
-                      headers,
                       credentials: "include",
                     }),
                 },
@@ -625,6 +634,7 @@ export function useConnection({
         setConnectionStatus("connected");
       } catch (e) {
         console.error(e);
+        if (e instanceof Error) toast.error(e.message);
         setConnectionStatus("error");
       }
     },

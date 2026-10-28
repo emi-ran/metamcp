@@ -9,6 +9,10 @@ import logger from "@/utils/logger";
 
 import { createServer } from "../../lib/metamcp/index";
 import { mcpServerPool } from "../../lib/metamcp/mcp-server-pool";
+import {
+  MCP_STREAMABLE_HTTP_OPTIONS,
+  parseMcpSseBody,
+} from "../../lib/metamcp/request-limits";
 import { betterAuthMcpMiddleware } from "../../middleware/better-auth-mcp.middleware";
 
 const metamcpRouter = express.Router();
@@ -100,6 +104,7 @@ metamcpRouter.post("/:uuid/mcp", async (req, res) => {
       );
 
       const webAppTransport = new StreamableHTTPServerTransport({
+        ...MCP_STREAMABLE_HTTP_OPTIONS,
         sessionIdGenerator: randomUUID,
         onsessioninitialized: async (newSessionId) => {
           try {
@@ -143,7 +148,6 @@ metamcpRouter.post("/:uuid/mcp", async (req, res) => {
       await (webAppTransport as StreamableHTTPServerTransport).handleRequest(
         req,
         res,
-        req.body,
       );
     } catch (error) {
       logger.error("Error in MetaMCP /mcp POST route:", error);
@@ -234,7 +238,7 @@ metamcpRouter.get("/:uuid/sse", async (req, res) => {
   }
 });
 
-metamcpRouter.post("/:uuid/message", async (req, res) => {
+metamcpRouter.post("/:uuid/message", parseMcpSseBody, async (req, res) => {
   // const namespaceUuid = req.params.uuid;
   try {
     const sessionId = req.query.sessionId;
@@ -249,7 +253,7 @@ metamcpRouter.post("/:uuid/message", async (req, res) => {
       res.status(404).end("Session not found");
       return;
     }
-    await transport.handlePostMessage(req, res);
+    await transport.handlePostMessage(req, res, req.body);
   } catch (error) {
     logger.error("Error in MetaMCP /message route:", error);
     res.status(500).json(error);

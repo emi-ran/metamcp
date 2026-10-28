@@ -162,6 +162,7 @@ export function EditMcpServer({
       env: "",
       user_id: undefined,
       oauth_client_id: "",
+      oauth_issuer: "",
       oauth_client_secret: "",
       oauth_authorization_endpoint: "",
       oauth_token_endpoint: "",
@@ -192,6 +193,7 @@ export function EditMcpServer({
           editForm.setValue("headers", "");
           editForm.setValue("forward_headers", "");
           editForm.setValue("oauth_client_id", "");
+          editForm.setValue("oauth_issuer", "");
           editForm.setValue("oauth_client_secret", "");
           editForm.setValue("oauth_authorization_endpoint", "");
           editForm.setValue("oauth_token_endpoint", "");
@@ -248,6 +250,10 @@ export function EditMcpServer({
           .join("\n"),
         user_id: server.user_id,
         oauth_client_id: existingClient?.client_id ?? "",
+        oauth_issuer:
+          typeof existingClient?.issuer === "string"
+            ? existingClient.issuer
+            : "",
         oauth_client_secret: existingClient?.client_secret ?? "",
         oauth_authorization_endpoint:
           existingClient?.authorization_endpoint ?? "",
@@ -346,6 +352,7 @@ export function EditMcpServer({
         dirty.oauth_client_id ||
         dirty.oauth_client_secret ||
         dirty.oauth_authorization_endpoint ||
+        dirty.oauth_issuer ||
         dirty.oauth_token_endpoint ||
         dirty.oauth_scope ||
         dirty.oauth_token_endpoint_auth_method,
@@ -357,6 +364,7 @@ export function EditMcpServer({
               client_secret: data.oauth_client_secret || undefined,
               authorization_endpoint:
                 data.oauth_authorization_endpoint || undefined,
+              issuer: data.oauth_issuer || undefined,
               token_endpoint: data.oauth_token_endpoint || undefined,
               scope: data.oauth_scope || undefined,
               token_endpoint_auth_method:

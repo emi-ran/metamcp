@@ -3,6 +3,7 @@ export * from "./mcp-servers.zod";
 export * from "./namespaces.zod";
 export * from "./endpoints.zod";
 export * from "./oauth.zod";
+export * from "./oauth-issuer";
 export * from "./tools.zod";
 export * from "./logs.zod";
 export * from "./metamcp.zod";

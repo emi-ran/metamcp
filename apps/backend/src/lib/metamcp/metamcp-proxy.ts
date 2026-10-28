@@ -25,6 +25,7 @@ import {
 
 import logger from "@/utils/logger";
 
+import { googleConnectionsRepository } from "../../db/repositories";
 import { namespacesRepository } from "../../db/repositories/namespaces.repo";
 import { toolsImplementations } from "../../trpc/tools.impl";
 import { getAdminToolsContext } from "../admin-mcp/admin-session-context";
@@ -34,6 +35,13 @@ import {
   isExposedAdminToolName,
 } from "../admin-mcp/tools-registry";
 import { configService } from "../config.service";
+import {
+  GOOGLE_WORKSPACE_SERVER_NAME,
+  GOOGLE_WORKSPACE_SERVER_UUID,
+  GOOGLE_WORKSPACE_TOOLS,
+  GoogleWorkspaceClient,
+  isGoogleWorkspaceToolName,
+} from "../google-workspace/google-workspace";
 import { ConnectedClient } from "./client";
 import { getMcpServers } from "./fetch-metamcp";
 import { extractForwardedHeaders, mergeHeaders } from "./header-forwarding";
@@ -56,18 +64,11 @@ import {
   createToolOverridesListToolsMiddleware,
   mapOverrideNameToOriginal,
 } from "./metamcp-middleware/tool-overrides.functional";
+import { assertToolInputElements } from "./request-limits";
 import { isRecoverableBackendError } from "./session-error";
 import { parseToolName } from "./tool-name-parser";
 import { toolsSyncCache } from "./tools-sync-cache";
 import { sanitizeName } from "./utils";
-import {
-  GOOGLE_WORKSPACE_SERVER_NAME,
-  GOOGLE_WORKSPACE_SERVER_UUID,
-  GOOGLE_WORKSPACE_TOOLS,
-  GoogleWorkspaceClient,
-  isGoogleWorkspaceToolName,
-} from "../google-workspace/google-workspace";
-import { googleConnectionsRepository } from "../../db/repositories";
 
 /**
  * Filter out tools that are overrides of existing tools to prevent duplicates in database
@@ -150,16 +151,27 @@ export const createServer = async (
     const uuid = clientServerUuids.get(cached);
     if (!uuid) throw new Error("Cached backend has no server identity");
     if (mcpServerPool.touchSession(sessionId, uuid, cached)) return cached;
-    const serverParams = await getMcpServers(namespaceUuid, includeInactiveServers);
+    const serverParams = await getMcpServers(
+      namespaceUuid,
+      includeInactiveServers,
+    );
     const params = serverParams[uuid];
     if (!params) throw new Error(`Backend server ${uuid} no longer present`);
     const forwarded = handlerContext.clientRequestHeaders
-      ? extractForwardedHeaders(handlerContext.clientRequestHeaders, serverParams)
+      ? extractForwardedHeaders(
+          handlerContext.clientRequestHeaders,
+          serverParams,
+        )
       : {};
     const effectiveParams = forwarded[uuid]
       ? { ...params, headers: mergeHeaders(params.headers, forwarded[uuid]) }
       : params;
-    const fresh = await mcpServerPool.getSession(sessionId, uuid, effectiveParams, namespaceUuid);
+    const fresh = await mcpServerPool.getSession(
+      sessionId,
+      uuid,
+      effectiveParams,
+      namespaceUuid,
+    );
     if (!fresh) throw new Error(`No current session for backend ${uuid}`);
     refreshServerMappings(uuid, fresh);
     return fresh;
@@ -262,7 +274,7 @@ export const createServer = async (
       poolServerEntries.length > 0
     ) {
       console.log(
-          `[DEBUG-TOOLS] ⚠️ Cold start: 0 idle, 0 active sessions but ${poolServerEntries.length} servers registered. Warming up...`,
+        `[DEBUG-TOOLS] ⚠️ Cold start: 0 idle, 0 active sessions but ${poolServerEntries.length} servers registered. Warming up...`,
       );
       for (const [uuid] of poolServerEntries) {
         await mcpServerPool.resetServerErrorState(uuid);
@@ -277,23 +289,23 @@ export const createServer = async (
       );
     }
 
-      await Promise.allSettled(
-        allServerEntries.map(async ([mcpServerUuid, params]) => {
-          console.log(`[DEBUG-TOOLS] 🔧 Server: ${params.name || mcpServerUuid}`);
+    await Promise.allSettled(
+      allServerEntries.map(async ([mcpServerUuid, params]) => {
+        console.log(`[DEBUG-TOOLS] 🔧 Server: ${params.name || mcpServerUuid}`);
 
-          if (
-            mcpServerUuid === GOOGLE_WORKSPACE_SERVER_UUID &&
-            params.name === GOOGLE_WORKSPACE_SERVER_NAME &&
-            params.type === "VIRTUAL"
-          ) {
-            allTools.push(
-              ...GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
-                ...tool,
-                name: `${GOOGLE_WORKSPACE_SERVER_NAME}__${tool.name}`,
-              })),
-            );
-            return;
-          }
+        if (
+          mcpServerUuid === GOOGLE_WORKSPACE_SERVER_UUID &&
+          params.name === GOOGLE_WORKSPACE_SERVER_NAME &&
+          params.type === "VIRTUAL"
+        ) {
+          allTools.push(
+            ...GOOGLE_WORKSPACE_TOOLS.map((tool) => ({
+              ...tool,
+              name: `${GOOGLE_WORKSPACE_SERVER_NAME}__${tool.name}`,
+            })),
+          );
+          return;
+        }
 
         // Skip if we've already visited this server to prevent circular references
         if (visitedServers.has(mcpServerUuid)) {
@@ -459,7 +471,14 @@ export const createServer = async (
 
           // Do not let a late discovery on an evicted identity overwrite a
           // replacement generation's routes or replay metadata.
-          if (!mcpServerPool.touchSession(context.sessionId, mcpServerUuid, activeSession)) return;
+          if (
+            !mcpServerPool.touchSession(
+              context.sessionId,
+              mcpServerUuid,
+              activeSession,
+            )
+          )
+            return;
           for (const [key, uuid] of Object.entries(toolToServerUuid)) {
             if (uuid === mcpServerUuid) {
               delete toolToClient[key];
@@ -473,7 +492,10 @@ export const createServer = async (
             const toolName = `${sanitizeName(serverName)}__${tool.name}`;
             toolToClient[toolName] = activeSession;
             toolToServerUuid[toolName] = mcpServerUuid;
-            toolReadOnly[toolName] = tool.annotations?.readOnlyHint === true ? activeSession : undefined;
+            toolReadOnly[toolName] =
+              tool.annotations?.readOnlyHint === true
+                ? activeSession
+                : undefined;
 
             return {
               ...tool,
@@ -530,8 +552,9 @@ export const createServer = async (
         toolName: originalToolName,
         arguments: (args ?? {}) as Record<string, unknown>,
         connectionId:
-          typeof (args as Record<string, unknown> | undefined)?.connectionId === "string"
-            ? (args as Record<string, unknown>).connectionId as string
+          typeof (args as Record<string, unknown> | undefined)?.connectionId ===
+          "string"
+            ? ((args as Record<string, unknown>).connectionId as string)
             : undefined,
         // Filter middleware runs before this handler and enforces active map.
         allowWrites: true,
@@ -616,9 +639,12 @@ export const createServer = async (
                     serverUuid = mcpServerUuid;
                     toolToClient[name] = session;
                     toolToServerUuid[name] = mcpServerUuid;
-                    toolReadOnly[name] = result.tools.find(
-                      (tool: Tool) => tool.name === originalToolName,
-                    )?.annotations?.readOnlyHint === true ? session : undefined;
+                    toolReadOnly[name] =
+                      result.tools.find(
+                        (tool: Tool) => tool.name === originalToolName,
+                      )?.annotations?.readOnlyHint === true
+                        ? session
+                        : undefined;
                     break;
                   }
 
@@ -699,7 +725,11 @@ export const createServer = async (
         `Backend connection lost for server ${serverUuid} on tool "${name}"; reconnecting (only explicitly read-only tools may replay).`,
       );
 
-      await mcpServerPool.invalidateServerConnection(sessionId, serverUuid, clientForTool);
+      await mcpServerPool.invalidateServerConnection(
+        sessionId,
+        serverUuid,
+        clientForTool,
+      );
       // Retain identities; they cannot be used until the pool owns them again.
 
       const serverParamsMap = await getMcpServers(
@@ -714,10 +744,16 @@ export const createServer = async (
       }
 
       const forwarded = handlerContext.clientRequestHeaders
-        ? extractForwardedHeaders(handlerContext.clientRequestHeaders, serverParamsMap)
+        ? extractForwardedHeaders(
+            handlerContext.clientRequestHeaders,
+            serverParamsMap,
+          )
         : {};
       const effectiveParams = forwarded[serverUuid]
-        ? { ...params, headers: mergeHeaders(params.headers, forwarded[serverUuid]) }
+        ? {
+            ...params,
+            headers: mergeHeaders(params.headers, forwarded[serverUuid]),
+          }
         : params;
       const freshSession = await mcpServerPool.getSession(
         sessionId,
@@ -740,12 +776,18 @@ export const createServer = async (
       // Re-discover on the replacement generation before replay: a tool may
       // have disappeared or changed into a write during the outage.
       try {
-        await originalListToolsHandler({ params: {} } as Parameters<ListToolsHandler>[0], context);
+        await originalListToolsHandler(
+          { params: {} } as Parameters<ListToolsHandler>[0],
+          context,
+        );
       } catch {
         throw error;
       }
-      if (toolReadOnly[name] !== freshSession ||
-          !mcpServerPool.touchSession(sessionId, serverUuid, freshSession)) throw error;
+      if (
+        toolReadOnly[name] !== freshSession ||
+        !mcpServerPool.touchSession(sessionId, serverUuid, freshSession)
+      )
+        throw error;
 
       try {
         return (await callOnce(freshSession)) as CallToolResult;
@@ -775,12 +817,12 @@ export const createServer = async (
 
   const callToolWithMiddleware = compose(
     createAuditCallToolMiddleware({ resolveToolIdentity }),
+    createToolOverridesCallToolMiddleware({ cacheEnabled: true }),
     createFilterCallToolMiddleware({
       cacheEnabled: true,
       customErrorMessage: (toolName, reason) =>
         `Access denied to tool "${toolName}": ${reason}`,
     }),
-    createToolOverridesCallToolMiddleware({ cacheEnabled: true }),
     // Add more middleware here as needed
     // createAuthorizationMiddleware(),
   )(originalCallToolHandler);
@@ -798,6 +840,7 @@ export const createServer = async (
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    assertToolInputElements(request.params.arguments);
     if (isExposedAdminToolName(request.params.name)) {
       const adminContext = getAdminToolsContext(handlerContext.sessionId);
       if (!adminContext?.enabled || !adminContext.userId) {

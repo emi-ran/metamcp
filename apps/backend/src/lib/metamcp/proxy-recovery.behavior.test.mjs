@@ -26,6 +26,11 @@ function load(file, deps, exports) {
 const logger = { error() {}, warn() {}, info() {}, debug() {} };
 const classifier = load('./session-error.ts', {}, ['isRecoverableBackendError', 'isBackendSessionLostError']);
 const recovery = load('./list-handler-recovery.ts', { logger, ...classifier }, ['requestWithSessionRecovery']);
+const limits = load('./request-limits.ts', {
+  ErrorCode: { InvalidParams: -32602 },
+  McpError: class extends Error { constructor(code, message) { super(message); this.code = code; } },
+  express: { json: () => undefined },
+}, ['assertToolInputElements']);
 
 async function fixture({ hint, failure = new Error('Not connected'), freshFailure, listFailure, requestHook } = {}) {
   const calls = [];
@@ -67,7 +72,7 @@ async function fixture({ hint, failure = new Error('Not connected'), freshFailur
   class Server { setRequestHandler(schema, handler) { handlers[schema] = handler; } }
   const identityMiddleware = () => (handler) => handler;
   const deps = {
-    Server, logger, ...classifier, ...recovery, mcpServerPool: pool,
+    Server, logger, ...classifier, ...recovery, ...limits, mcpServerPool: pool,
     namespacesRepository: { findByUuid: async () => ({}) },
     getMcpServers: async () => ({ uuid: { uuid: 'uuid', name: 'backend', headers: { base: 'yes' } } }),
     GoogleWorkspaceClient: class {}, googleConnectionsRepository: {},
@@ -100,6 +105,15 @@ test('Not connected retries a positively read-only tool once and preserves forwa
   assert.equal(f.calls.filter(c => c.method === 'tools/call').length, 2);
   assert.equal(f.gets.at(-1)[2].headers.authorization, 'forwarded-test-value');
   assert.deepEqual(f.calls.at(-1).params, { name: 'read', arguments: { a: 1 }, _meta: { trace: 'test' } });
+});
+
+test('tool element limit rejects before real proxy handler dispatch', async () => {
+  const f = await fixture({ hint: true });
+  await assert.rejects(f.run('CallToolRequestSchema', {
+    name: 'backend__read', arguments: { items: Array(10_000).fill(0) },
+  }), /maximum/);
+  assert.equal(f.calls.filter(c => c.method === 'tools/call').length, 0);
+  assert.equal(f.invalidations, 0);
 });
 
 test('recovery refreshes sibling tool, prompt and resource mappings', async () => {

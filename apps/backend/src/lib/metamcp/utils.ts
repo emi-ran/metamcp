@@ -95,6 +95,7 @@ export async function convertDbServerToParams(
     if (oauthSession && oauthSession.tokens) {
       oauthTokens = {
         access_token: oauthSession.tokens.access_token,
+        issuer: oauthSession.tokens.issuer,
         token_type: oauthSession.tokens.token_type,
         expires_in: oauthSession.tokens.expires_in,
         scope: oauthSession.tokens.scope,

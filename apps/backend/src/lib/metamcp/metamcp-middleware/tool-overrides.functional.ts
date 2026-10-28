@@ -10,6 +10,7 @@ import {
   toolsTable,
 } from "../../../db/schema";
 import { parseToolName } from "../tool-name-parser";
+import { resolveNamespaceServer } from "./tool-identity";
 import {
   CallToolMiddleware,
   ListToolsMiddleware,
@@ -125,7 +126,7 @@ class ToolOverridesCache {
     if (override.overrideName) {
       const reverseKey = this.getReverseKey(
         namespaceUuid,
-        override.overrideName,
+        `${serverName}__${override.overrideName}`,
       );
       this.reverseNameCache.set(reverseKey, `${serverName}__${toolName}`);
     }
@@ -191,10 +192,7 @@ async function getToolOverrides(
 
   try {
     // Get server UUID by name
-    const [server] = await db
-      .select({ uuid: mcpServersTable.uuid })
-      .from(mcpServersTable)
-      .where(eq(mcpServersTable.name, serverName));
+    const server = await resolveNamespaceServer(serverName, namespaceUuid);
 
     if (!server) {
       return null;
@@ -346,7 +344,7 @@ async function applyToolOverrides(
         if (override.overrideName && useCache) {
           toolOverridesCache.setOriginalName(
             namespaceUuid,
-            override.overrideName,
+            `${parsed.serverName}__${override.overrideName}`,
             tool.name,
           );
         }
@@ -382,7 +380,7 @@ export async function mapOverrideNameToOriginal(
   if (useCache) {
     const originalName = toolOverridesCache.getOriginalName(
       namespaceUuid,
-      parsed.originalToolName,
+      toolName,
     );
     if (originalName) {
       return originalName;
@@ -391,6 +389,11 @@ export async function mapOverrideNameToOriginal(
 
   // If not found in cache or cache disabled, query database
   try {
+    const server = await resolveNamespaceServer(
+      parsed.serverName,
+      namespaceUuid,
+    );
+    if (!server) return toolName;
     const [toolMapping] = await db
       .select({
         originalName: toolsTable.name,
@@ -409,18 +412,18 @@ export async function mapOverrideNameToOriginal(
         and(
           eq(namespaceToolMappingsTable.namespace_uuid, namespaceUuid),
           eq(namespaceToolMappingsTable.override_name, parsed.originalToolName),
-          eq(mcpServersTable.name, parsed.serverName),
+          eq(mcpServersTable.uuid, server.uuid),
         ),
       );
 
     if (toolMapping) {
-      const originalFullName = `${toolMapping.serverName}__${toolMapping.originalName}`;
+      const originalFullName = `${parsed.serverName}__${toolMapping.originalName}`;
 
       // Cache the reverse mapping using the tool part only
       if (useCache) {
         toolOverridesCache.setOriginalName(
           namespaceUuid,
-          parsed.originalToolName,
+          toolName,
           originalFullName,
         );
       }

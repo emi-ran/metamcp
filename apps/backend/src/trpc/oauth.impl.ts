@@ -4,6 +4,7 @@ import {
   ExchangeOAuthTokenResponseSchema,
   GetOAuthSessionRequestSchema,
   GetOAuthSessionResponseSchema,
+  OAuthReauthorizationRequiredError,
   RefreshOAuthTokenRequestSchema,
   RefreshOAuthTokenResponseSchema,
   UpsertOAuthSessionRequestSchema,
@@ -18,13 +19,12 @@ import {
   oauthSessionsRepository,
 } from "../db/repositories";
 import { OAuthSessionsSerializer } from "../db/serializers";
+import { boundOAuthContext } from "../lib/oauth-upstream/issuer-binding";
 import { tryRefreshUpstreamTokens } from "../lib/oauth-upstream/refresh-on-401";
 import {
-  discoverAuthorizationServerMetadata,
   exchangeAuthorizationCode,
   OAuthTokens,
   redactToken,
-  resolveTokenEndpoint,
   resolveTokenEndpointAuthMethod,
   UpstreamTokenError,
 } from "../lib/oauth-upstream/token-exchange";
@@ -286,12 +286,18 @@ export const oauthImplementations = {
         ? (clientInformation.client_secret as string)
         : undefined;
 
-    const discovered = await discoverAuthorizationServerMetadata(serverUrl);
-    const tokenEndpoint = resolveTokenEndpoint({
-      clientInformation,
-      discovered,
-      serverUrl,
-    });
+    let context;
+    try {
+      context = await boundOAuthContext(serverUrl, clientInformation);
+    } catch (error) {
+      if (!(error instanceof OAuthReauthorizationRequiredError)) throw error;
+      return {
+        success: false as const,
+        error: "oauth_reauthorization_required",
+        error_description: error.message,
+      };
+    }
+    const { issuer, tokenEndpoint, discovered } = context;
     const authMethod = resolveTokenEndpointAuthMethod({
       clientInformation,
       discovered,
@@ -337,7 +343,13 @@ export const oauthImplementations = {
 
     await oauthSessionsRepository.upsert({
       mcp_server_uuid: input.mcp_server_uuid,
-      tokens,
+      // Ignore any issuer claimed by the HTTP response, like SDK auth().
+      tokens: { ...tokens, issuer },
+      client_information: {
+        ...session.client_information,
+        client_id: clientId,
+        oauth_reauthorization_required: false,
+      },
     });
 
     // One-shot clear: with the upstream exchange successful, the

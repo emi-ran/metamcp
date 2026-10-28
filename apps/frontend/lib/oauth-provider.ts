@@ -1,12 +1,21 @@
-import { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  discoverOAuthServerInfo,
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   OAuthClientInformation,
-  OAuthClientInformationSchema,
   OAuthClientMetadata,
   OAuthMetadata,
   OAuthTokens,
   OAuthTokensSchema,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  assertOAuthIssuer,
+  OAuthClientInformationSchema,
+  oauthIssuersMatch,
+  OAuthReauthorizationRequiredError,
+} from "@repo/zod-types";
 
 import { getServerSpecificKey, SESSION_KEYS } from "./constants";
 import { getAppUrl } from "./env";
@@ -31,6 +40,8 @@ function base64UrlEncode(bytes: Uint8Array): string {
 class DbOAuthClientProvider implements OAuthClientProvider {
   private mcpServerUuid: string;
   protected serverUrl: string;
+  private activeDiscovery?: OAuthDiscoveryState;
+  private invalid = new Set<string>();
 
   constructor(mcpServerUuid: string, serverUrl: string) {
     this.mcpServerUuid = mcpServerUuid;
@@ -67,122 +78,187 @@ class DbOAuthClientProvider implements OAuthClientProvider {
 
   // Check if the server exists in the database
   private async serverExists() {
-    try {
-      const result = await vanillaTrpcClient.frontend.mcpServers.get.query({
-        uuid: this.mcpServerUuid,
+    const result = await vanillaTrpcClient.frontend.mcpServers.get.query({
+      uuid: this.mcpServerUuid,
+    });
+    // A failed lookup is not permission to fall back to browser credentials.
+    if (!result.success) throw new Error("Cannot load OAuth connection");
+    return !!result.data;
+  }
+
+  private storageKey(key: string) {
+    return getServerSpecificKey(key, `${this.mcpServerUuid}:${this.serverUrl}`);
+  }
+
+  private async loadCredentials() {
+    if (await this.serverExists()) {
+      const result = await vanillaTrpcClient.frontend.oauth.get.query({
+        mcp_server_uuid: this.mcpServerUuid,
       });
-      return result.success && !!result.data;
-    } catch (error) {
-      console.error("Error checking server existence:", error);
-      return false;
+      return result.success ? result.data : undefined;
     }
+    const read = (key: string) => {
+      const value = sessionStorage.getItem(this.storageKey(key));
+      return value ? JSON.parse(value) : undefined;
+    };
+    // Old URL-only keys have no connection scope and are not reused.
+    return {
+      client_information: read(SESSION_KEYS.CLIENT_INFORMATION),
+      tokens: read(SESSION_KEYS.TOKENS),
+    };
+  }
+
+  private async persist(
+    input: Parameters<typeof vanillaTrpcClient.frontend.oauth.upsert.mutate>[0],
+  ) {
+    if (await this.serverExists()) {
+      const result =
+        await vanillaTrpcClient.frontend.oauth.upsert.mutate(input);
+      if (!result.success)
+        throw new Error("Cannot persist OAuth connection credentials");
+    }
+  }
+
+  async saveDiscoveryState(state: OAuthDiscoveryState) {
+    // SDK-selected AS URL, not the token response issuer or an admin trust pin.
+    this.activeDiscovery = state;
+  }
+
+  private async currentIssuer() {
+    if (!this.activeDiscovery) {
+      await this.saveDiscoveryState(
+        await discoverOAuthServerInfo(this.serverUrl),
+      );
+    }
+    const discovery = this.activeDiscovery;
+    if (!discovery) throw new OAuthReauthorizationRequiredError();
+    return discovery.authorizationServerUrl;
+  }
+
+  async invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
+  ) {
+    // SDK retries use this provider instance. Suppress old credentials rather
+    // than deleting/rebinding DB rows or affecting another connection/account.
+    const scopes =
+      scope === "all" ? ["client", "tokens", "verifier", "discovery"] : [scope];
+    for (const item of scopes) this.invalid.add(item);
+    if (scopes.includes("discovery")) this.activeDiscovery = undefined;
   }
 
   // During OAuth flow, we use sessionStorage for temporary data
   // After successful authentication, we'll save to the database
   async clientInformation() {
-    try {
-      // Check if server exists in the database
-      const exists = await this.serverExists();
-
-      if (exists) {
-        // Get from database if server exists
-        const result = await vanillaTrpcClient.frontend.oauth.get.query({
-          mcp_server_uuid: this.mcpServerUuid,
-        });
-        if (result.success && result.data?.client_information) {
-          return await OAuthClientInformationSchema.parseAsync(
-            result.data.client_information,
-          );
-        }
-      } else {
-        // Get from session storage during OAuth flow
-        const key = getServerSpecificKey(
-          SESSION_KEYS.CLIENT_INFORMATION,
-          this.serverUrl,
-        );
-        const storedInfo = sessionStorage.getItem(key);
-        if (storedInfo) {
-          return await OAuthClientInformationSchema.parseAsync(
-            JSON.parse(storedInfo),
-          );
-        }
+    if (this.invalid.has("client")) return undefined;
+    const saved = (await this.loadCredentials())?.client_information;
+    if (!saved || !saved.client_id) return undefined;
+    const client = OAuthClientInformationSchema.parse(saved);
+    const issuer = await this.currentIssuer();
+    if (!oauthIssuersMatch(client.issuer, issuer)) {
+      await this.invalidateCredentials("tokens");
+      // Pre-registered credentials cannot silently become a different DCR client.
+      if (
+        client.pre_registered ||
+        (client.registration_source !== "sdk" &&
+          (client.token_endpoint || client.client_secret) &&
+          !client.registration_client_uri &&
+          !client.client_id_issued_at)
+      ) {
+        throw new OAuthReauthorizationRequiredError();
       }
-
-      return undefined;
-    } catch (error) {
-      console.error("Error retrieving client information:", error);
-      return undefined;
+      await this.invalidateCredentials("client");
+      return undefined; // Fresh registration + interactive authorization via SDK.
     }
+    if (
+      client.registration_source === "sdk" &&
+      client.token_endpoint &&
+      client.token_endpoint !==
+        (this.activeDiscovery?.authorizationServerMetadata?.token_endpoint ??
+          new URL("/token", issuer).href)
+    ) {
+      throw new OAuthReauthorizationRequiredError();
+    }
+    return client;
   }
 
   async saveClientInformation(clientInformation: OAuthClientInformation) {
     this.ensureServerUrlStored();
-    // Save to session storage during OAuth flow
-    const key = getServerSpecificKey(
-      SESSION_KEYS.CLIENT_INFORMATION,
-      this.serverUrl,
-    );
-    sessionStorage.setItem(key, JSON.stringify(clientInformation));
-
-    // If server exists, also save to database
-    if (await this.serverExists()) {
-      try {
-        await vanillaTrpcClient.frontend.oauth.upsert.mutate({
-          mcp_server_uuid: this.mcpServerUuid,
-          client_information: clientInformation,
-        });
-      } catch (error) {
-        console.error("Error saving client information to database:", error);
-      }
+    assertOAuthIssuer(clientInformation, await this.currentIssuer());
+    const previous = (await this.loadCredentials())?.client_information;
+    if (
+      previous?.client_id !== clientInformation.client_id ||
+      !oauthIssuersMatch(previous?.issuer, clientInformation.issuer)
+    ) {
+      await this.invalidateCredentials("tokens");
     }
+    const saved = {
+      ...clientInformation,
+      registration_source: "sdk",
+      oauth_reauthorization_required:
+        this.invalid.has("client") ||
+        previous?.oauth_reauthorization_required === true ||
+        previous?.client_id !== clientInformation.client_id ||
+        !oauthIssuersMatch(previous?.issuer, clientInformation.issuer),
+      token_endpoint:
+        this.activeDiscovery?.authorizationServerMetadata?.token_endpoint ??
+        new URL("/token", String(await this.currentIssuer())).href,
+    };
+    await this.persist({
+      mcp_server_uuid: this.mcpServerUuid,
+      client_information: saved,
+    });
+    this.invalid.delete("client");
+    sessionStorage.setItem(
+      this.storageKey(SESSION_KEYS.CLIENT_INFORMATION),
+      JSON.stringify(saved),
+    );
   }
 
   async tokens() {
-    try {
-      // Check if server exists in the database
-      const exists = await this.serverExists();
-
-      if (exists) {
-        // Get from database if server exists
-        const result = await vanillaTrpcClient.frontend.oauth.get.query({
-          mcp_server_uuid: this.mcpServerUuid,
-        });
-        if (result.success && result.data?.tokens) {
-          return await OAuthTokensSchema.parseAsync(result.data.tokens);
-        }
-      } else {
-        // Get from session storage during OAuth flow
-        const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
-        const storedTokens = sessionStorage.getItem(key);
-        if (storedTokens) {
-          return await OAuthTokensSchema.parseAsync(JSON.parse(storedTokens));
-        }
-      }
-
+    if (this.invalid.has("tokens")) return undefined;
+    const saved = await this.loadCredentials();
+    if (
+      !saved?.tokens ||
+      saved.client_information?.oauth_reauthorization_required
+    )
       return undefined;
-    } catch (error) {
-      console.error("Error retrieving tokens:", error);
-      return undefined;
+    const issuer = await this.currentIssuer();
+    if (
+      !oauthIssuersMatch(saved.tokens.issuer, issuer) ||
+      !oauthIssuersMatch(saved.client_information?.issuer, issuer)
+    ) {
+      await this.invalidateCredentials("tokens");
+      return undefined; // No legacy refresh or manual access-token injection.
     }
+    // Manual inspector headers bypass SDK auth(), so they need the client
+    // endpoint/provenance guard too, not only the token's matching issuer.
+    if (!(await this.clientInformation())) return undefined;
+    return OAuthTokensSchema.parse(saved.tokens);
+  }
+
+  async reauthorizationRequired() {
+    const saved = await this.loadCredentials();
+    return Boolean(saved?.tokens || saved?.client_information?.client_id);
   }
 
   async saveTokens(tokens: OAuthTokens) {
+    assertOAuthIssuer(tokens, await this.currentIssuer());
+    const client = await this.clientInformation();
+    if (!client) throw new OAuthReauthorizationRequiredError();
+    const savedClient = { ...client, oauth_reauthorization_required: false };
+    await this.persist({
+      mcp_server_uuid: this.mcpServerUuid,
+      tokens,
+      client_information: savedClient,
+    });
+    sessionStorage.setItem(
+      this.storageKey(SESSION_KEYS.CLIENT_INFORMATION),
+      JSON.stringify(savedClient),
+    );
+    this.invalid.delete("tokens");
     // Save to session storage during OAuth flow
-    const key = getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl);
+    const key = this.storageKey(SESSION_KEYS.TOKENS);
     sessionStorage.setItem(key, JSON.stringify(tokens));
-
-    // If server exists, also save to database
-    if (await this.serverExists()) {
-      try {
-        await vanillaTrpcClient.frontend.oauth.upsert.mutate({
-          mcp_server_uuid: this.mcpServerUuid,
-          tokens,
-        });
-      } catch (error) {
-        console.error("Error saving tokens to database:", error);
-      }
-    }
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
@@ -231,6 +307,7 @@ class DbOAuthClientProvider implements OAuthClientProvider {
 
   async saveCodeVerifier(codeVerifier: string) {
     this.ensureServerUrlStored();
+    this.invalid.delete("verifier");
     // Save to session storage during OAuth flow
     const key = getServerSpecificKey(
       SESSION_KEYS.CODE_VERIFIER,
@@ -252,6 +329,8 @@ class DbOAuthClientProvider implements OAuthClientProvider {
   }
 
   async codeVerifier() {
+    if (this.invalid.has("verifier"))
+      throw new OAuthReauthorizationRequiredError();
     // Check if server exists in the database
     const exists = await this.serverExists();
 
@@ -283,12 +362,11 @@ class DbOAuthClientProvider implements OAuthClientProvider {
   }
 
   clear() {
-    sessionStorage.removeItem(
-      getServerSpecificKey(SESSION_KEYS.CLIENT_INFORMATION, this.serverUrl),
-    );
-    sessionStorage.removeItem(
-      getServerSpecificKey(SESSION_KEYS.TOKENS, this.serverUrl),
-    );
+    this.activeDiscovery = undefined;
+    this.invalid.clear();
+    for (const key of [SESSION_KEYS.CLIENT_INFORMATION, SESSION_KEYS.TOKENS]) {
+      sessionStorage.removeItem(this.storageKey(key));
+    }
     sessionStorage.removeItem(
       getServerSpecificKey(SESSION_KEYS.CODE_VERIFIER, this.serverUrl),
     );

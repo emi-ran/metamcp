@@ -20,16 +20,18 @@
 //
 // Acceptance criterion #3 from the OAuth-CORS-fix PR.
 
-import { ServerParameters } from "@repo/zod-types";
+import {
+  OAuthReauthorizationRequiredError,
+  ServerParameters,
+} from "@repo/zod-types";
 
 import { oauthSessionsRepository } from "../../db/repositories";
 import logger from "../../utils/logger";
+import { boundOAuthContext } from "./issuer-binding";
 import {
-  discoverAuthorizationServerMetadata,
   OAuthTokens,
   redactToken,
   refreshAccessToken,
-  resolveTokenEndpoint,
   resolveTokenEndpointAuthMethod,
   UpstreamTokenError,
 } from "./token-exchange";
@@ -117,14 +119,22 @@ async function doRefresh(
       ? (clientInformation.client_secret as string)
       : undefined;
 
-  const discovered = await discoverAuthorizationServerMetadata(
-    serverParams.url,
-  );
-  const tokenEndpoint = resolveTokenEndpoint({
-    clientInformation,
-    discovered,
-    serverUrl: serverParams.url,
-  });
+  let context;
+  try {
+    context = await boundOAuthContext(
+      serverParams.url,
+      clientInformation,
+      currentTokens,
+    );
+  } catch (error) {
+    if (!(error instanceof OAuthReauthorizationRequiredError)) throw error;
+    return {
+      status: "failed",
+      error: "oauth_reauthorization_required",
+      errorDescription: error.message,
+    };
+  }
+  const { issuer, tokenEndpoint, discovered } = context;
   const authMethod = resolveTokenEndpointAuthMethod({
     clientInformation,
     discovered,
@@ -176,7 +186,7 @@ async function doRefresh(
 
   await oauthSessionsRepository.upsert({
     mcp_server_uuid: serverParams.uuid,
-    tokens: newTokens,
+    tokens: { ...newTokens, issuer },
   });
 
   logger.info(
@@ -184,5 +194,5 @@ async function doRefresh(
       `access_token=${redactToken(newTokens.access_token)}`,
   );
 
-  return { status: "refreshed", tokens: newTokens };
+  return { status: "refreshed", tokens: { ...newTokens, issuer } };
 }

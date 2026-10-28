@@ -95,6 +95,8 @@ describe("oauthImplementations.exchangeToken", () => {
       code_verifier: "PKCE_VERIFIER",
       client_information: {
         client_id: "3MVG9.Salesforce",
+        issuer: "https://api.salesforce.com/",
+        pre_registered: true,
         token_endpoint: "https://login.salesforce.com/services/oauth2/token",
       },
       tokens: null,
@@ -105,7 +107,7 @@ describe("oauthImplementations.exchangeToken", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation(async (url, init) => {
         const urlStr = typeof url === "string" ? url : (url as URL).toString();
-        if (urlStr.includes("/.well-known/oauth-authorization-server")) {
+        if (urlStr.includes("/.well-known/")) {
           return new Response("not found", { status: 404 });
         }
         expect(urlStr).toBe(
@@ -136,6 +138,9 @@ describe("oauthImplementations.exchangeToken", () => {
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(upsert).toHaveBeenCalledWith({
       mcp_server_uuid: SERVER_UUID,
+      client_information: expect.objectContaining({
+        oauth_reauthorization_required: false,
+      }),
       tokens: expect.objectContaining({
         access_token: "AT_xyz",
         token_type: "Bearer",
@@ -162,6 +167,8 @@ describe("oauthImplementations.exchangeToken", () => {
       code_verifier: "PKCE_VERIFIER",
       client_information: {
         client_id: "3MVG9",
+        issuer: "https://api.salesforce.com/",
+        pre_registered: true,
         token_endpoint: "https://login.salesforce.com/services/oauth2/token",
       },
       tokens: null,
@@ -191,6 +198,37 @@ describe("oauthImplementations.exchangeToken", () => {
       error_description: "authentication failure",
       upstream_status: 400,
     });
+    expect(upsert).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("refuses an unbound client secret before any discovery or grant POST", async () => {
+    const {
+      oauthImplementations,
+      findByMcpServerUuid,
+      upsert,
+      findServerByUuid,
+    } = await loadModule();
+    findServerByUuid.mockResolvedValue(
+      ownedServer(SERVER_UUID, "https://api.example.com/mcp"),
+    );
+    findByMcpServerUuid.mockResolvedValue({
+      code_verifier: "fixture",
+      client_information: {
+        client_id: "fixture",
+        client_secret: "legacy-secret",
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const result = await oauthImplementations.exchangeToken(
+      { mcp_server_uuid: SERVER_UUID, code: "fixture" },
+      USER_ID,
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: "oauth_reauthorization_required",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -360,6 +398,7 @@ describe("exchangeToken redirect_uri byte-match", () => {
       client_information: {
         client_id: "c",
         token_endpoint: "https://upstream/token",
+        issuer: "https://upstream/",
       },
       tokens: null,
     });
@@ -456,12 +495,14 @@ describe("oauthImplementations.refreshToken", () => {
       code_verifier: null,
       client_information: {
         client_id: "client-1",
+        issuer: "https://example.com/",
         token_endpoint: "https://example.com/token",
       },
       tokens: {
         access_token: "OLD",
         token_type: "Bearer",
         refresh_token: "RT_original",
+        issuer: "https://example.com/",
       },
     });
     upsert.mockResolvedValue({});
@@ -575,7 +616,7 @@ describe("exchangeToken state CSRF validation", () => {
   const USER_ID = "user-1";
 
   const upstreamSuccess = vi.fn(async (url: string, init?: RequestInit) => {
-    const urlStr = url;
+    const urlStr = String(url);
     if (urlStr.includes("/.well-known/")) {
       return new Response("nope", { status: 404 });
     }
@@ -608,6 +649,7 @@ describe("exchangeToken state CSRF validation", () => {
       client_information: {
         client_id: "c",
         token_endpoint: "https://upstream.example.com/token",
+        issuer: "https://upstream.example.com/",
       },
       tokens: null,
       expected_state: null,
@@ -649,6 +691,7 @@ describe("exchangeToken state CSRF validation", () => {
       client_information: {
         client_id: "c",
         token_endpoint: "https://upstream.example.com/token",
+        issuer: "https://upstream.example.com/",
       },
       tokens: null,
       expected_state: "the-nonce",
@@ -760,6 +803,7 @@ describe("exchangeToken state CSRF validation", () => {
       client_information: {
         client_id: "c",
         token_endpoint: "https://upstream.example.com/token",
+        issuer: "https://upstream.example.com/",
       },
       tokens: null,
       expected_state: "the-nonce",

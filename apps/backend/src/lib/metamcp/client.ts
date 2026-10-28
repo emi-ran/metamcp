@@ -8,6 +8,7 @@ import { ServerParameters } from "@repo/zod-types";
 import logger from "@/utils/logger";
 
 import { oauthSessionsRepository } from "../../db/repositories";
+import { boundOAuthContext } from "../oauth-upstream/issuer-binding";
 import { tryRefreshUpstreamTokens } from "../oauth-upstream/refresh-on-401";
 import { recoverFromPostAuthRace } from "../oauth-upstream/retry-post-auth";
 import { isUpstreamUnauthorizedError } from "../oauth-upstream/token-exchange";
@@ -90,7 +91,7 @@ export const createMetaMcpClient = (
       ...(serverParams.headers || {}),
     };
 
-    // Check for authentication - prioritize OAuth tokens, fallback to bearerToken
+    // Preserve existing OAuth-token priority; manual Bearer-only paths are unchanged.
     const authToken =
       serverParams.oauth_tokens?.access_token || serverParams.bearerToken;
     if (authToken) {
@@ -106,9 +107,6 @@ export const createMetaMcpClient = (
         requestInit: {
           headers,
         },
-        eventSourceInit: {
-          fetch: (url, init) => fetch(url, { ...init, headers }),
-        },
       });
     }
   } else if (serverParams.type === "STREAMABLE_HTTP" && serverParams.url) {
@@ -120,7 +118,7 @@ export const createMetaMcpClient = (
       ...(serverParams.headers || {}),
     };
 
-    // Check for authentication - prioritize OAuth tokens, fallback to bearerToken
+    // Preserve existing OAuth-token priority; manual Bearer-only paths are unchanged.
     const authToken =
       serverParams.oauth_tokens?.access_token || serverParams.bearerToken;
     if (authToken) {
@@ -174,6 +172,23 @@ export const connectMetaMcpClient = async (
   );
   let count = 0;
   let retry = true;
+
+  // Access-token injection bypasses SDK auth() too. Validate before the first
+  // network handshake; Bearer-only/API-key-only/STDIO paths do not use discovery.
+  if (
+    (serverParams.type === "SSE" || serverParams.type === "STREAMABLE_HTTP") &&
+    serverParams.url &&
+    serverParams.oauth_tokens
+  ) {
+    const session = await oauthSessionsRepository.findByMcpServerUuid(
+      serverParams.uuid,
+    );
+    await boundOAuthContext(
+      serverParams.url,
+      session?.client_information as Record<string, unknown> | null,
+      serverParams.oauth_tokens,
+    );
+  }
 
   logger.info(
     `Connecting to server ${serverParams.name} (${serverParams.uuid}) with max attempts: ${maxAttempts}`,
@@ -364,6 +379,7 @@ export const connectMetaMcpClient = async (
           if (refresh.status === "refreshed" && refresh.tokens) {
             serverParams.oauth_tokens = {
               access_token: refresh.tokens.access_token,
+              issuer: refresh.tokens.issuer,
               token_type: refresh.tokens.token_type,
               expires_in: refresh.tokens.expires_in,
               scope:

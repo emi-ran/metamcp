@@ -4,6 +4,7 @@ import express from "express";
 import logger from "@/utils/logger";
 
 import { endpointsRepository } from "../db/repositories/endpoints.repo";
+import { parseMcpJsonBody } from "../lib/metamcp/request-limits";
 import adminRouter from "./public-metamcp/admin";
 import { openApiRouter } from "./public-metamcp/openapi";
 import sseRouter from "./public-metamcp/sse";
@@ -30,7 +31,7 @@ publicEndpointsRouter.use(
 publicEndpointsRouter.use((req, res, next) => {
   // Only apply JSON parsing for OpenAPI tool execution endpoints
   if (req.path.includes("/api/tools/") && req.method === "POST") {
-    return express.json({ limit: "50mb" })(req, res, next);
+    return parseMcpJsonBody(req, res, next);
   }
   next();
 });

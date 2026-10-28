@@ -166,6 +166,7 @@ export default function McpServersPage() {
       isHttpServer && data.oauth_client_id && data.oauth_client_id.trim() !== ""
         ? {
             client_id: data.oauth_client_id.trim(),
+            issuer: data.oauth_issuer || undefined,
             client_secret: data.oauth_client_secret || undefined,
             authorization_endpoint:
               data.oauth_authorization_endpoint || undefined,

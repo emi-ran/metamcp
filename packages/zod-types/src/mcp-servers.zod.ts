@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const McpServerTypeEnum = z.enum(["STDIO", "SSE", "STREAMABLE_HTTP", "VIRTUAL"]);
+export const McpServerTypeEnum = z.enum([
+  "STDIO",
+  "SSE",
+  "STREAMABLE_HTTP",
+  "VIRTUAL",
+]);
 export const McpServerStatusEnum = z.enum(["ACTIVE", "INACTIVE"]);
 
 export const McpServerErrorStatusEnum = z.enum(["NONE", "ERROR"]);
@@ -130,6 +135,7 @@ export const OAuthClientAuthMethodEnum = z.enum([
 // dynamic registration and goes straight to the authorization-code-with-PKCE
 // flow against the provider's authorization endpoint.
 const oauthClientInfoBaseSchema = z.object({
+  issuer: z.string().url().optional(),
   client_id: z.string().optional(),
   client_secret: z.string().optional(),
   authorization_endpoint: z.string().optional(),
@@ -145,7 +151,8 @@ const oauthClientInfoIsBlank = (
   data: z.infer<typeof oauthClientInfoBaseSchema> | undefined,
 ) =>
   !data ||
-  (isEmptyString(data.client_id) &&
+  (isEmptyString(data.issuer) &&
+    isEmptyString(data.client_id) &&
     isEmptyString(data.client_secret) &&
     isEmptyString(data.authorization_endpoint) &&
     isEmptyString(data.token_endpoint) &&
@@ -203,6 +210,7 @@ export type OAuthClientAuthMethod = z.infer<typeof OAuthClientAuthMethodEnum>;
 // presence-based validation (client_id required when any field is set) is
 // applied via .refine() on the parent form schema.
 const oauthClientInfoFormShape = {
+  oauth_issuer: z.string().optional(),
   oauth_client_id: z.string().optional(),
   oauth_client_secret: z.string().optional(),
   oauth_authorization_endpoint: z.string().optional(),
@@ -212,6 +220,7 @@ const oauthClientInfoFormShape = {
 } as const;
 
 const formOauthIsBlank = (data: {
+  oauth_issuer?: string;
   oauth_client_id?: string;
   oauth_client_secret?: string;
   oauth_authorization_endpoint?: string;
@@ -219,6 +228,7 @@ const formOauthIsBlank = (data: {
   oauth_scope?: string;
   oauth_token_endpoint_auth_method?: OAuthClientAuthMethod;
 }) =>
+  isEmptyString(data.oauth_issuer) &&
   isEmptyString(data.oauth_client_id) &&
   isEmptyString(data.oauth_client_secret) &&
   isEmptyString(data.oauth_authorization_endpoint) &&
@@ -289,6 +299,10 @@ export const createServerFormSchema = z
       path: ["oauth_client_id"],
     },
   )
+  .refine((data) => isValidOptionalUrl(data.oauth_issuer), {
+    message: "OAuth issuer must be a valid URL",
+    path: ["oauth_issuer"],
+  })
   .refine((data) => isValidOptionalUrl(data.oauth_authorization_endpoint), {
     message: "validation:oauthAuthorizationEndpoint.invalid",
     path: ["oauth_authorization_endpoint"],
@@ -362,6 +376,10 @@ export const EditServerFormSchema = z
       path: ["oauth_client_id"],
     },
   )
+  .refine((data) => isValidOptionalUrl(data.oauth_issuer), {
+    message: "OAuth issuer must be a valid URL",
+    path: ["oauth_issuer"],
+  })
   .refine((data) => isValidOptionalUrl(data.oauth_authorization_endpoint), {
     message: "validation:oauthAuthorizationEndpoint.invalid",
     path: ["oauth_authorization_endpoint"],

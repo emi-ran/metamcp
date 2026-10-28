@@ -8,6 +8,7 @@ import {
 import logger from "@/utils/logger";
 
 import { metaMcpServerPool } from "../../../lib/metamcp/metamcp-server-pool";
+import { parseMcpJsonBody } from "../../../lib/metamcp/request-limits";
 import { lookupEndpoint } from "../../../middleware/lookup-endpoint-middleware";
 import { createMiddlewareEnabledHandlers } from "./handlers";
 import { generateOpenApiSchema } from "./schema-generator";
@@ -129,7 +130,7 @@ openApiRouter.get(
 // Tool execution endpoint for POST requests
 openApiRouter.post(
   "/:endpoint_name/api/:tool_name",
-  express.json(),
+  parseMcpJsonBody,
   lookupEndpoint,
   authenticateApiKey,
   async (req, res) => {

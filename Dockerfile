@@ -1,6 +1,6 @@
 # Keep the same Debian release as the old uv:debian image, without its compiler
 # toolchain, static libraries, or NodeSource bootstrap installation.
-FROM node:20-trixie-slim AS base
+FROM node:22.23.4-trixie-slim AS base
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 
 RUN npm install -g pnpm@10.29.3 \
@@ -59,7 +59,7 @@ COPY . .
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     --mount=type=cache,id=turbo-cache,target=/app/.turbo \
     --mount=type=cache,id=next-cache,target=/app/apps/frontend/.next/cache \
-    pnpm build
+    pnpm build --concurrency=1
 
 # Trace backend imports and migration tooling instead of installing the complete
 # peer dependency graph (which also contains frontend and test-only packages).

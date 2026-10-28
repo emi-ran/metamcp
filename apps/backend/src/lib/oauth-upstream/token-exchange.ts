@@ -24,6 +24,7 @@ export interface OAuthTokens {
   expires_in?: number;
   scope?: string;
   refresh_token?: string;
+  issuer?: string;
   // Some providers (Salesforce, Microsoft) include additional fields like
   // `id_token`, `instance_url`, `signature`, etc. We keep them via index
   // signature so the jsonb round-trip preserves them.
@@ -108,6 +109,8 @@ async function postFormToToken({
     method: "POST",
     headers,
     body: params,
+    // Credential-bearing POSTs must never follow a new destination.
+    redirect: "error",
   });
 
   let payload: unknown;
